@@ -1,23 +1,13 @@
 import { getWritable } from "workflow";
 import { convertToModelMessages, gateway } from "ai";
 import { assistantAgent, CallOptions } from "@/lib/agents/assistant-agent";
-import type {
-  GatewayModelId,
-  LanguageModel,
-  UIMessage,
-  UIMessageChunk,
-  ModelMessage,
-} from "ai";
+import type { UIMessage, UIMessageChunk, ModelMessage } from "ai";
 
-export async function handleChat(messages: UIMessage[]) {
+export async function handleChat(messages: UIMessage[], options: CallOptions) {
   "use workflow";
 
   const writable = getWritable<UIMessageChunk>();
   let modelMessages = await toModelMessages(messages);
-
-  // can't pass because not serializable
-  // const model: LanguageModel = gateway("anthropic/claude-haiku-4-5");
-  const modelId: GatewayModelId = "anthropic/claude-haiku-4-5";
 
   const maxIterations = 10;
 
@@ -25,7 +15,7 @@ export async function handleChat(messages: UIMessage[]) {
     const { responseMessages, finishReason } = await runAgentStep(
       modelMessages,
       writable,
-      { modelId, type: "durable" },
+      options,
     );
     modelMessages = [...modelMessages, ...responseMessages];
     if (finishReason !== "tool-calls") break;

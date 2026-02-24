@@ -1,7 +1,6 @@
 import {
   gateway,
   GatewayModelId,
-  LanguageModel,
   stepCountIs,
   ToolLoopAgent,
   InferAgentUIMessage,
