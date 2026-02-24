@@ -1,11 +1,13 @@
-import { createAgentUIStreamResponse } from 'ai';
-import { assistantAgent } from '@/lib/agents/assistant-agent';
+import { createUIMessageStreamResponse } from 'ai';
+import { start } from 'workflow/api';
+import { handleChat } from '@/workflows/chat';
 
 export async function POST(request: Request) {
   const { messages } = await request.json();
 
-  return createAgentUIStreamResponse({
-    agent: assistantAgent,
-    uiMessages: messages,
+  const run = await start(handleChat, [messages]);
+
+  return createUIMessageStreamResponse({
+    stream: run.readable,
   });
 }

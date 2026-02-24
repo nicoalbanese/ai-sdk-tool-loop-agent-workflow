@@ -9,6 +9,7 @@ export const weatherTool = tool({
     location: z.string().describe('City name, e.g. "San Francisco"'),
   }),
   execute: async ({ location }) => {
+    'use step';
     await delay(1000);
 
     // Fake weather data
