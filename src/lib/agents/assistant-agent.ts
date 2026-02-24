@@ -1,4 +1,4 @@
-import { ToolLoopAgent, InferAgentUIMessage } from 'ai';
+import { stepCountIs, ToolLoopAgent, InferAgentUIMessage } from 'ai';
 import { weatherTool } from '../tools/weather-tool';
 import { timeTool } from '../tools/time-tool';
 
@@ -10,6 +10,7 @@ export const assistantAgent = new ToolLoopAgent({
     weather: weatherTool,
     time: timeTool,
   },
+  stopWhen: stepCountIs(1),
 });
 
 export type AssistantUIMessage = InferAgentUIMessage<typeof assistantAgent>;
