@@ -12,8 +12,6 @@ export const bashTool = tool({
   description: "Run a bash command inside the connected Vercel Sandbox",
   inputSchema: bashCommandSchema,
   execute: async ({ command, args, cwd }, { experimental_context }) => {
-    "use step";
-
     const sandbox = getAssistantSandbox(experimental_context);
     const result = await sandbox.runCommand({
       cmd: command,
