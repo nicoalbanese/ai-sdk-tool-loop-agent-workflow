@@ -1,5 +1,5 @@
 import { getWritable } from "workflow";
-import { convertToModelMessages, gateway } from "ai";
+import { convertToModelMessages } from "ai";
 import { assistantAgent, CallOptions } from "@/lib/agents/assistant-agent";
 import type { UIMessage, UIMessageChunk, ModelMessage } from "ai";
 

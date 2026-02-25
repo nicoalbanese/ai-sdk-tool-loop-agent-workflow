@@ -11,7 +11,6 @@ export const timeTool = tool({
       .describe('IANA timezone, e.g. "America/New_York"'),
   }),
   execute: async ({ timezone }) => {
-    'use step';
     await delay(1000);
 
     const now = new Date();
