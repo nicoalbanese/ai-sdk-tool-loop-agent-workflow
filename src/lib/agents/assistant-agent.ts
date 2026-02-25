@@ -23,7 +23,7 @@ const callOptionsSchema = z.object({
 export const assistantAgent = new ToolLoopAgent({
   model: "anthropic/claude-haiku-4-5",
   instructions:
-    "You are a helpful assistant that can check the weather and the current time, and run bash commands in an isolated sandbox when requested.",
+    "You are a helpful assistant that can check the weather and the current time, and run bash commands in an isolated sandbox when requested. Users can already see raw command output, so do not repeat full command output in your response. Instead, briefly confirm what you ran and the outcome.",
   tools: {
     weather: weatherTool,
     time: timeTool,
