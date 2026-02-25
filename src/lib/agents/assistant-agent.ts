@@ -9,7 +9,7 @@ import { z } from "zod";
 import { weatherTool } from "../tools/weather-tool";
 import { timeTool } from "../tools/time-tool";
 import { bashTool } from "../tools/bash-tool";
-import { resolveSandbox } from "../sandbox/resolve-sandbox";
+import { reconnectSandbox } from "../sandbox/resolve-sandbox";
 import type { AssistantAgentContext } from "../sandbox/assistant-context";
 
 const agentType = z.enum(["normal", "durable"]);
@@ -17,7 +17,7 @@ const agentType = z.enum(["normal", "durable"]);
 const callOptionsSchema = z.object({
   modelId: z.string<GatewayModelId>(),
   type: agentType.optional(),
-  sandboxId: z.string().optional(),
+  sandboxId: z.string().min(1),
 });
 
 export const assistantAgent = new ToolLoopAgent({
@@ -34,12 +34,8 @@ export const assistantAgent = new ToolLoopAgent({
     // b/c we can't serialize functions, we need to reconstruct here
     const model = gateway(options.modelId);
 
-    let sandboxContext: AssistantAgentContext | undefined;
-
-    if (options.sandboxId) {
-      const { sandbox } = await resolveSandbox(options.sandboxId);
-      sandboxContext = { sandbox };
-    }
+    const sandbox = await reconnectSandbox(options.sandboxId);
+    const sandboxContext: AssistantAgentContext = { sandbox };
 
     return {
       ...rest,

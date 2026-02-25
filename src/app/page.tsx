@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
@@ -14,77 +14,41 @@ const transport = new DefaultChatTransport({ api: '/api/chat' });
 
 export default function Home() {
   const [input, setInput] = useState('');
-  const [sandboxId, setSandboxId] = useState<string | null>(null);
-  const [isSandboxLoading, setIsSandboxLoading] = useState(true);
-  const [sandboxError, setSandboxError] = useState<string | null>(null);
+  const [isCreatingSandbox, setIsCreatingSandbox] = useState(false);
 
   const router = useRouter();
   const searchParams = useSearchParams();
-  const sandboxIdFromQuery = searchParams.get('sandboxId');
-  const searchParamString = searchParams.toString();
+  const sandboxId = searchParams.get('sandboxId');
 
   const { messages, sendMessage, status } = useChat<AssistantUIMessage>({
     transport,
   });
 
-  useEffect(() => {
-    let canceled = false;
+  const createSandbox = async () => {
+    setIsCreatingSandbox(true);
 
-    const connectSandbox = async () => {
-      setIsSandboxLoading(true);
-      setSandboxError(null);
+    try {
+      const response = await fetch('/api/sandbox', {
+        cache: 'no-store',
+      });
 
-      const params = new URLSearchParams();
-      if (sandboxIdFromQuery) {
-        params.set('sandboxId', sandboxIdFromQuery);
+      if (!response.ok) {
+        throw new Error('Failed to create sandbox');
       }
 
-      const url = params.size > 0 ? `/api/sandbox?${params.toString()}` : '/api/sandbox';
-
-      try {
-        const response = await fetch(url, {
-          cache: 'no-store',
-        });
-
-        if (!response.ok) {
-          throw new Error('Failed to initialize sandbox.');
-        }
-
-        const payload = (await response.json()) as SandboxResponse;
-
-        if (canceled) {
-          return;
-        }
-
-        setSandboxId(payload.sandboxId);
-        setIsSandboxLoading(false);
-
-        if (payload.sandboxId !== sandboxIdFromQuery) {
-          const updatedParams = new URLSearchParams(searchParamString);
-          updatedParams.set('sandboxId', payload.sandboxId);
-          router.replace(`?${updatedParams.toString()}`);
-        }
-      } catch {
-        if (canceled) {
-          return;
-        }
-
-        setSandboxError('Unable to connect to the sandbox.');
-        setIsSandboxLoading(false);
-      }
-    };
-
-    void connectSandbox();
-
-    return () => {
-      canceled = true;
-    };
-  }, [router, sandboxIdFromQuery, searchParamString]);
+      const payload = (await response.json()) as SandboxResponse;
+      const params = new URLSearchParams(searchParams.toString());
+      params.set('sandboxId', payload.sandboxId);
+      router.replace(`?${params.toString()}`);
+    } finally {
+      setIsCreatingSandbox(false);
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!input.trim() || !sandboxId || isSandboxLoading) {
+    if (!input.trim() || !sandboxId) {
       return;
     }
 
@@ -100,20 +64,34 @@ export default function Home() {
     setInput('');
   };
 
-  const isSendDisabled = status !== 'ready' || isSandboxLoading || !sandboxId;
+  if (!sandboxId) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-4 font-sans dark:bg-black">
+        <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-sm dark:bg-zinc-900">
+          <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">Start a sandbox chat</h1>
+          <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
+            Create a new sandbox session to start chatting.
+          </p>
+
+          <button
+            type="button"
+            onClick={() => void createSandbox()}
+            disabled={isCreatingSandbox}
+            className="mt-4 w-full rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+          >
+            {isCreatingSandbox ? 'Creating sandbox…' : 'Create new sandbox'}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen flex-col items-center bg-zinc-50 py-12 font-sans dark:bg-black">
       <div className="w-full max-w-2xl flex flex-col gap-4 px-4">
         <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">Assistant Agent</h1>
 
-        <p className="text-xs text-zinc-500 dark:text-zinc-400">
-          {isSandboxLoading
-            ? 'Preparing sandbox...'
-            : sandboxError
-              ? sandboxError
-              : `Sandbox: ${sandboxId}`}
-        </p>
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">Sandbox: {sandboxId}</p>
 
         <div className="flex flex-col gap-3">
           {messages.map((message) => (
@@ -195,8 +173,7 @@ export default function Home() {
                     if (part.state === 'input-available' || part.state === 'input-streaming') {
                       return (
                         <div key={i} className="my-1 text-zinc-400">
-                          Running command
-                          {part.state === 'input-available' ? `: ${part.input.command}` : ''}…
+                          Running command{part.state === 'input-available' ? `: ${part.input.command}` : ''}…
                         </div>
                       );
                     }
@@ -214,12 +191,12 @@ export default function Home() {
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={isSandboxLoading ? 'Waiting for sandbox...' : 'Ask about weather, time, or run bash commands...'}
+            placeholder="Ask about weather, time, or run bash commands..."
             className="flex-1 rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
           />
           <button
             type="submit"
-            disabled={isSendDisabled}
+            disabled={status !== 'ready'}
             className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
           >
             Send
