@@ -1,5 +1,7 @@
 import { getWritable } from "workflow";
 import { convertToModelMessages, generateId } from "ai";
+import { appendFile, mkdir } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import {
   assistantAgent,
   AssistantUIMessage,
@@ -17,6 +19,8 @@ export async function runAgent(
   "use workflow";
 
   const writable = getWritable<UIMessageChunk>();
+
+  await persistLatestUserMessage(messages);
 
   let modelMessages = await toModelMessages(messages);
   const messageId = await sendStart(writable);
@@ -48,8 +52,42 @@ async function toModelMessages(messages: AssistantUIMessage[]) {
 
 async function persistRun(uiMessage: AssistantUIMessage | undefined) {
   "use step";
-  // persist the final message to a database, or trigger some other side effect
-  console.dir(uiMessage, { depth: null });
+
+  if (!uiMessage) {
+    return;
+  }
+
+  const assistantResponsesPath = join(
+    process.cwd(),
+    ".workflow-data",
+    "assistant-responses.jsonl",
+  );
+
+  await mkdir(dirname(assistantResponsesPath), { recursive: true });
+  await appendFile(assistantResponsesPath, `${JSON.stringify(uiMessage)}\n`, "utf8");
+}
+
+async function persistLatestUserMessage(messages: AssistantUIMessage[]) {
+  "use step";
+
+  const latestMessage = messages[messages.length - 1];
+
+  if (!latestMessage || latestMessage.role !== "user") {
+    return;
+  }
+
+  const assistantResponsesPath = join(
+    process.cwd(),
+    ".workflow-data",
+    "assistant-responses.jsonl",
+  );
+
+  await mkdir(dirname(assistantResponsesPath), { recursive: true });
+  await appendFile(
+    assistantResponsesPath,
+    `${JSON.stringify(latestMessage)}\n`,
+    "utf8",
+  );
 }
 
 async function runAgentStep(
