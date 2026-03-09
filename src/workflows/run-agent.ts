@@ -1,11 +1,10 @@
 import { getWritable, getWorkflowMetadata } from "workflow";
 import { getRun } from "workflow/api";
 import { convertToModelMessages } from "ai";
-import { appendFile, mkdir } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import type { UIMessageChunk, ModelMessage, InferAgentUIMessage } from "ai";
+import type { UIMessageChunk, ModelMessage, InferAgentUIMessage, FinishReason } from "ai";
 import z from "zod";
 import { agent, AgentCallOptionsSchema } from "./setup";
+import { persistUserMessage } from "@/lib/history/persist-assistant-message";
 
 type AgentMessage = InferAgentUIMessage<typeof agent>;
 type CallOptions = z.infer<AgentCallOptionsSchema>;
@@ -27,6 +26,8 @@ export async function runAgent(
   let modelMessages = await toModelMessages(messages);
   await sendStart(writable, workflowRunId);
 
+  let didFinish = false;
+
   for (let i = 0; i < maxIterations; i++) {
     const { responseMessages, finishReason } = await runAgentStep(
       modelMessages,
@@ -38,9 +39,14 @@ export async function runAgent(
     // Assistant persistence is intentionally handled by API stream onFinish.
     modelMessages = [...modelMessages, ...responseMessages];
     if (finishReason !== "tool-calls") {
+      didFinish = true;
       await sendFinish(writable);
       break;
     }
+  }
+
+  if (!didFinish) {
+    await sendFinish(writable);
   }
 
   await closeStream(writable);
@@ -63,18 +69,7 @@ async function persistLatestUserMessage(messages: AgentMessage[]) {
     return;
   }
 
-  const assistantResponsesPath = join(
-    process.cwd(),
-    ".workflow-data",
-    "assistant-responses.jsonl",
-  );
-
-  await mkdir(dirname(assistantResponsesPath), { recursive: true });
-  await appendFile(
-    assistantResponsesPath,
-    `${JSON.stringify(latestMessage)}\n`,
-    "utf8",
-  );
+  await persistUserMessage(latestMessage);
 }
 
 async function runAgentStep(
@@ -124,9 +119,10 @@ async function runAgentStep(
     };
   } catch (error) {
     if (isAbortError(error)) {
+      const finishReason: FinishReason = "stop";
       return {
         responseMessages: [],
-        finishReason: "stop",
+        finishReason,
       };
     }
 
@@ -141,13 +137,21 @@ async function sendStart(writable: Writable, messageId: string) {
   "use step";
 
   const writer = writable.getWriter();
-  await writer.write({ type: "start", messageId });
+  try {
+    await writer.write({ type: "start", messageId });
+  } finally {
+    writer.releaseLock();
+  }
 }
 
 async function sendFinish(writable: Writable) {
   "use step";
   const writer = writable.getWriter();
-  await writer.write({ type: "finish", finishReason: "stop" });
+  try {
+    await writer.write({ type: "finish", finishReason: "stop" });
+  } finally {
+    writer.releaseLock();
+  }
 }
 
 async function closeStream(writable: Writable) {
