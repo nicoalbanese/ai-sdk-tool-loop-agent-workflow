@@ -12,7 +12,7 @@ import type { AssistantAgentContext } from "../sandbox/assistant-context";
 
 const agentType = z.enum(["normal", "durable"]);
 
-const callOptionsSchema = z.object({
+export const callOptionsSchema = z.object({
   modelId: z.string<GatewayModelId>(),
   type: agentType.optional(),
   sandboxId: z.string().min(1),

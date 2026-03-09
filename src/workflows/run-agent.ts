@@ -4,15 +4,26 @@ import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
   assistantAgent,
-  AssistantUIMessage,
-  CallOptions,
+  callOptionsSchema,
 } from "@/lib/agents/assistant-agent";
-import type { UIMessageChunk, ModelMessage } from "ai";
+import type { UIMessageChunk, ModelMessage, InferAgentUIMessage } from "ai";
+import z from "zod";
+
+// ---
+// SET YOUR AGENT HERE
+const agent = assistantAgent;
+type AgentCallOptionsSchema = typeof callOptionsSchema;
+// AND THATS IT
+// ---
+
+// The rest can be inferred
+type AgentMessage = InferAgentUIMessage<typeof agent>;
+type CallOptions = z.infer<AgentCallOptionsSchema>;
 
 type Writable = WritableStream<UIMessageChunk>;
 
 export async function runAgent(
-  messages: AssistantUIMessage[],
+  messages: AgentMessage[],
   options: CallOptions,
   maxIterations = 20,
 ) {
@@ -25,7 +36,7 @@ export async function runAgent(
   let modelMessages = await toModelMessages(messages);
   const messageId = await sendStart(writable);
 
-  const collectedUIMessage: AssistantUIMessage = {
+  const collectedUIMessage: AgentMessage = {
     id: messageId,
     role: "assistant",
     parts: [],
@@ -45,12 +56,12 @@ export async function runAgent(
   await closeStream(writable);
 }
 
-async function toModelMessages(messages: AssistantUIMessage[]) {
+async function toModelMessages(messages: AgentMessage[]) {
   "use step";
   return convertToModelMessages(messages);
 }
 
-async function persistRun(uiMessage: AssistantUIMessage | undefined) {
+async function persistRun(uiMessage: AgentMessage | undefined) {
   "use step";
 
   if (!uiMessage) {
@@ -64,10 +75,14 @@ async function persistRun(uiMessage: AssistantUIMessage | undefined) {
   );
 
   await mkdir(dirname(assistantResponsesPath), { recursive: true });
-  await appendFile(assistantResponsesPath, `${JSON.stringify(uiMessage)}\n`, "utf8");
+  await appendFile(
+    assistantResponsesPath,
+    `${JSON.stringify(uiMessage)}\n`,
+    "utf8",
+  );
 }
 
-async function persistLatestUserMessage(messages: AssistantUIMessage[]) {
+async function persistLatestUserMessage(messages: AgentMessage[]) {
   "use step";
 
   const latestMessage = messages[messages.length - 1];
@@ -92,16 +107,16 @@ async function persistLatestUserMessage(messages: AssistantUIMessage[]) {
 
 async function runAgentStep(
   messages: ModelMessage[],
-  originalMessages: AssistantUIMessage[],
+  originalMessages: AgentMessage[],
   writable: Writable,
   callOptions: CallOptions,
   messageId: string,
 ) {
   "use step";
 
-  let generatedParts: AssistantUIMessage["parts"] = [];
+  let generatedParts: AgentMessage["parts"] = [];
 
-  const result = await assistantAgent.stream({
+  const result = await agent.stream({
     messages,
     options: callOptions,
   });

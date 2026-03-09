@@ -9,7 +9,8 @@ const bashCommandSchema = z.object({
 });
 
 export const bashTool = tool({
-  description: "Run a bash command inside the connected Vercel Sandbox",
+  description:
+    "Run a bash command inside the connected Vercel Sandbox. You can only run non-interactive commands. You can only create files in new folders like (tmp).",
   inputSchema: bashCommandSchema,
   execute: async ({ command, args, cwd }, { experimental_context }) => {
     const sandbox = getAssistantSandbox(experimental_context);
