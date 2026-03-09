@@ -9,7 +9,7 @@ import type { UIMessageChunk, ModelMessage } from "ai";
 
 type Writable = WritableStream<UIMessageChunk>;
 
-export async function handleChat(
+export async function runAgent(
   messages: AssistantUIMessage[],
   options: CallOptions,
 ) {

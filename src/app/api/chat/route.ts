@@ -1,6 +1,6 @@
 import { createUIMessageStreamResponse } from "ai";
 import { start } from "workflow/api";
-import { handleChat } from "@/workflows/chat";
+import { runAgent } from "@/workflows/run-agent";
 import { AssistantUIMessage } from "@/lib/agents/assistant-agent";
 
 type ChatRequestBody = {
@@ -17,7 +17,7 @@ export async function POST(request: Request) {
 
   // start workflow and pass only serializable data
   // non-serializable runtime data (sandbox instance) is reconstructed in prepareCall
-  const run = await start(handleChat, [
+  const run = await start(runAgent, [
     messages,
     {
       type: "durable",
