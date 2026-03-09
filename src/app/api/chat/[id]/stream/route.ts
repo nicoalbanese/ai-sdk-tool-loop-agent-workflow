@@ -44,6 +44,7 @@ export async function GET(request: Request, { params }: RouteContext) {
     execute: ({ writer }) => {
       writer.merge(readable);
     },
+    // Keep persistence consistent when a response finishes via reconnect.
     onFinish: async ({ responseMessage }) => {
       await persistAssistantMessage(responseMessage);
     },

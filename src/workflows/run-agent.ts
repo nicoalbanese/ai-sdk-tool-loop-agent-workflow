@@ -6,7 +6,6 @@ import { dirname, join } from "node:path";
 import type { UIMessageChunk, ModelMessage, InferAgentUIMessage } from "ai";
 import z from "zod";
 import { agent, AgentCallOptionsSchema } from "./setup";
-import { persistAssistantMessage } from "@/lib/history/persist-assistant-message";
 
 type AgentMessage = InferAgentUIMessage<typeof agent>;
 type CallOptions = z.infer<AgentCallOptionsSchema>;
@@ -29,14 +28,14 @@ export async function runAgent(
   await sendStart(writable, workflowRunId);
 
   for (let i = 0; i < maxIterations; i++) {
-    const { responseMessages, finishReason, responseMessage } = await runAgentStep(
+    const { responseMessages, finishReason } = await runAgentStep(
       modelMessages,
       messages,
       writable,
       options,
       workflowRunId,
     );
-    await persistAssistantResponse(responseMessage);
+    // Assistant persistence is intentionally handled by API stream onFinish.
     modelMessages = [...modelMessages, ...responseMessages];
     if (finishReason !== "tool-calls") {
       await sendFinish(writable);
@@ -89,7 +88,6 @@ async function runAgentStep(
 
   const abortController = new AbortController();
   const stopMonitor = startStopMonitor(workflowRunId, abortController);
-  let responseMessage: AgentMessage | null = null;
 
   try {
     const result = await agent.stream({
@@ -102,9 +100,6 @@ async function runAgentStep(
       sendFinish: false,
       originalMessages,
       generateMessageId: () => workflowRunId,
-      onFinish: ({ responseMessage: finishedResponseMessage }) => {
-        responseMessage = finishedResponseMessage;
-      },
     });
     const reader = stream.getReader();
     const writer = writable.getWriter();
@@ -126,14 +121,12 @@ async function runAgentStep(
     return {
       responseMessages: response.messages,
       finishReason,
-      responseMessage,
     };
   } catch (error) {
     if (isAbortError(error)) {
       return {
         responseMessages: [],
         finishReason: "stop",
-        responseMessage,
       };
     }
 
@@ -142,16 +135,6 @@ async function runAgentStep(
     stopMonitor.stop();
     await stopMonitor.done;
   }
-}
-
-async function persistAssistantResponse(message: AgentMessage | null) {
-  "use step";
-
-  if (!message || message.role !== "assistant") {
-    return;
-  }
-
-  await persistAssistantMessage(message);
 }
 
 async function sendStart(writable: Writable, messageId: string) {

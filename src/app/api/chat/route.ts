@@ -48,6 +48,7 @@ export async function POST(request: Request) {
     execute: ({ writer }) => {
       writer.merge(run.readable);
     },
+    // Assistant persistence is owned by API stream onFinish.
     onFinish: async ({ responseMessage }) => {
       await persistAssistantMessage(responseMessage);
     },
