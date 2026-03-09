@@ -25,19 +25,17 @@ export async function runAgent(
   let modelMessages = await toModelMessages(messages);
   const messageId = await sendStart(writable);
 
-  const collectedUIMessage: AgentMessage = {
-    id: messageId,
-    role: "assistant",
-    parts: [],
-  };
   for (let i = 0; i < maxIterations; i++) {
-    const { responseMessages, finishReason, generatedParts } =
-      await runAgentStep(modelMessages, messages, writable, options, messageId);
+    const { responseMessages, finishReason } = await runAgentStep(
+      modelMessages,
+      messages,
+      writable,
+      options,
+      messageId,
+    );
     modelMessages = [...modelMessages, ...responseMessages];
-    collectedUIMessage.parts.push(...generatedParts);
     if (finishReason !== "tool-calls") {
       await sendFinish(writable);
-      await persistRun(collectedUIMessage);
       break;
     }
   }
@@ -47,28 +45,10 @@ export async function runAgent(
 
 async function toModelMessages(messages: AgentMessage[]) {
   "use step";
-  return convertToModelMessages(messages);
-}
-
-async function persistRun(uiMessage: AgentMessage | undefined) {
-  "use step";
-
-  if (!uiMessage) {
-    return;
-  }
-
-  const assistantResponsesPath = join(
-    process.cwd(),
-    ".workflow-data",
-    "assistant-responses.jsonl",
-  );
-
-  await mkdir(dirname(assistantResponsesPath), { recursive: true });
-  await appendFile(
-    assistantResponsesPath,
-    `${JSON.stringify(uiMessage)}\n`,
-    "utf8",
-  );
+  return convertToModelMessages(messages, {
+    ignoreIncompleteToolCalls: true,
+    tools: agent.tools,
+  });
 }
 
 async function persistLatestUserMessage(messages: AgentMessage[]) {
@@ -103,8 +83,6 @@ async function runAgentStep(
 ) {
   "use step";
 
-  let generatedParts: AgentMessage["parts"] = [];
-
   const result = await agent.stream({
     messages,
     options: callOptions,
@@ -114,9 +92,6 @@ async function runAgentStep(
     sendFinish: false,
     originalMessages,
     generateMessageId: () => messageId,
-    onFinish: ({ responseMessage }) => {
-      generatedParts = responseMessage.parts;
-    },
   });
   const reader = stream.getReader();
   const writer = writable.getWriter();
@@ -137,7 +112,6 @@ async function runAgentStep(
 
   return {
     responseMessages: response.messages,
-    generatedParts,
     finishReason,
   };
 }

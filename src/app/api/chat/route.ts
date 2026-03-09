@@ -1,7 +1,9 @@
-import { createUIMessageStreamResponse } from "ai";
+import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
+import { appendFile, mkdir } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { start } from "workflow/api";
 import { runAgent } from "@/workflows/run-agent";
-import { AssistantUIMessage } from "@/lib/agents/assistant-agent";
+import type { AssistantUIMessage } from "@/lib/agents/assistant-agent";
 
 type ChatRequestBody = {
   messages: AssistantUIMessage[];
@@ -9,7 +11,22 @@ type ChatRequestBody = {
 };
 
 export async function POST(request: Request) {
-  const { messages, sandboxId } = (await request.json()) as ChatRequestBody;
+  let requestBody: unknown;
+
+  try {
+    requestBody = await request.json();
+  } catch {
+    return Response.json({ error: "Invalid request body" }, { status: 400 });
+  }
+
+  if (!isChatRequestBody(requestBody)) {
+    return Response.json(
+      { error: "messages and sandboxId are required" },
+      { status: 400 },
+    );
+  }
+
+  const { messages, sandboxId } = requestBody;
 
   if (!sandboxId) {
     return Response.json({ error: "sandboxId is required" }, { status: 400 });
@@ -26,7 +43,51 @@ export async function POST(request: Request) {
     },
   ]);
 
-  return createUIMessageStreamResponse({
-    stream: run.readable,
+  const stream = createUIMessageStream<AssistantUIMessage>({
+    originalMessages: messages,
+    execute: ({ writer }) => {
+      writer.merge(run.readable);
+    },
+    onFinish: async ({ responseMessage }) => {
+      await persistAssistantMessage(responseMessage);
+    },
   });
+
+  return createUIMessageStreamResponse({
+    stream,
+    headers: {
+      "x-workflow-run-id": run.runId,
+    },
+  });
+}
+
+function isChatRequestBody(value: unknown): value is ChatRequestBody {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  if (!("sandboxId" in value) || typeof value.sandboxId !== "string") {
+    return false;
+  }
+
+  if (!("messages" in value) || !Array.isArray(value.messages)) {
+    return false;
+  }
+
+  return true;
+}
+
+async function persistAssistantMessage(message: AssistantUIMessage) {
+  const assistantResponsesPath = join(
+    process.cwd(),
+    ".workflow-data",
+    "assistant-responses.jsonl",
+  );
+
+  await mkdir(dirname(assistantResponsesPath), { recursive: true });
+  await appendFile(
+    assistantResponsesPath,
+    `${JSON.stringify(message)}\n`,
+    "utf8",
+  );
 }

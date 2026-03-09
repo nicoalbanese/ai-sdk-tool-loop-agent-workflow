@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
@@ -14,11 +14,13 @@ type ChatClientProps = {
   initialMessages: AssistantUIMessage[];
 };
 
-const transport = new DefaultChatTransport({ api: "/api/chat" });
-
 export function ChatClient({ initialMessages }: ChatClientProps) {
   const [input, setInput] = useState("");
   const [isCreatingSandbox, setIsCreatingSandbox] = useState(false);
+  const [activeWorkflowRunId, setActiveWorkflowRunId] = useState<string | null>(
+    null,
+  );
+  const [isStoppingWorkflow, setIsStoppingWorkflow] = useState(false);
   const { containerRef, isAtBottom, scrollToBottom } =
     useScrollToBottom<HTMLDivElement>();
 
@@ -26,10 +28,35 @@ export function ChatClient({ initialMessages }: ChatClientProps) {
   const searchParams = useSearchParams();
   const sandboxId = searchParams.get("sandboxId");
 
-  const { messages, sendMessage, status } = useChat<AssistantUIMessage>({
+  const transport = useMemo(
+    () =>
+      new DefaultChatTransport<AssistantUIMessage>({
+        api: "/api/chat",
+        fetch: async (input, init) => {
+          const response = await fetch(input, init);
+          const workflowRunId = response.headers.get("x-workflow-run-id");
+
+          if (workflowRunId) {
+            setActiveWorkflowRunId(workflowRunId);
+          }
+
+          return response;
+        },
+      }),
+    [],
+  );
+
+  const { messages, sendMessage, status, stop } = useChat<AssistantUIMessage>({
     transport,
     messages: initialMessages,
   });
+
+  useEffect(() => {
+    if (status === "ready") {
+      setActiveWorkflowRunId(null);
+      setIsStoppingWorkflow(false);
+    }
+  }, [status]);
 
   const createSandbox = async () => {
     setIsCreatingSandbox(true);
@@ -73,6 +100,32 @@ export function ChatClient({ initialMessages }: ChatClientProps) {
     );
 
     setInput("");
+  };
+
+  const handleStopWorkflow = async () => {
+    if (!activeWorkflowRunId || status === "ready") {
+      return;
+    }
+
+    setIsStoppingWorkflow(true);
+    stop();
+
+    try {
+      const response = await fetch("/api/chat/stop", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ runId: activeWorkflowRunId }),
+      });
+
+      if (!response.ok) {
+        return;
+      }
+    } finally {
+      setIsStoppingWorkflow(false);
+      setActiveWorkflowRunId(null);
+    }
   };
 
   if (!sandboxId) {
@@ -228,6 +281,14 @@ export function ChatClient({ initialMessages }: ChatClientProps) {
             className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
           >
             Send
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleStopWorkflow()}
+            disabled={status === "ready" || !activeWorkflowRunId || isStoppingWorkflow}
+            className="rounded-full border border-zinc-300 bg-white px-5 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            {isStoppingWorkflow ? "Stopping..." : "Stop"}
           </button>
         </form>
       </div>
