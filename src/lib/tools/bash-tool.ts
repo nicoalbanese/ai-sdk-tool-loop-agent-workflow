@@ -3,14 +3,28 @@ import { z } from "zod";
 import { getAssistantSandbox } from "../sandbox/assistant-context";
 
 const bashCommandSchema = z.object({
-  command: z.string().min(1).describe("Command to execute inside the sandbox"),
-  args: z.array(z.string()).optional().describe("Optional command arguments"),
-  cwd: z.string().optional().describe("Optional working directory"),
+  command: z
+    .string()
+    .min(1)
+    .regex(/^\S+$/, "command must be a single executable token without spaces")
+    .describe(
+      "Executable only, with no flags or spaces. Correct: command='ls'. Incorrect: command='ls -la'. For shell syntax (|, &&, redirects), use command='bash' with args=['-lc', '<script>']."
+    ),
+  args: z
+    .array(z.string())
+    .optional()
+    .describe(
+      "Optional argument tokens in order. Put each token in its own array item. Example: ls -la => args=['-la']; git commit -m 'msg' => args=['commit', '-m', 'msg']."
+    ),
+  cwd: z
+    .string()
+    .optional()
+    .describe("Optional working directory. Defaults to /vercel/sandbox."),
 });
 
 export const bashTool = tool({
   description:
-    "Run a bash command inside the connected Vercel Sandbox. You can only run non-interactive commands. You can only create files in new folders like (tmp).",
+    "Run a non-interactive command in the connected Vercel Sandbox via runCommand({ cmd, args, cwd }). Always split executable and arguments: use command='ls' with args=['-la'], never command='ls -la'.",
   inputSchema: bashCommandSchema,
   execute: async ({ command, args, cwd }, { experimental_context }) => {
     try {
