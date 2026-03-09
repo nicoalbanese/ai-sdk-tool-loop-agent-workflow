@@ -21,7 +21,7 @@ export async function POST(request: Request) {
     messages,
     {
       type: "durable",
-      modelId: "openai/gpt-5.1-instant",
+      modelId: "anthropic/claude-haiku-4.5",
       sandboxId,
     },
   ]);

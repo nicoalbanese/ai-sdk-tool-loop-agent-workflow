@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
@@ -19,6 +19,8 @@ const transport = new DefaultChatTransport({ api: "/api/chat" });
 export function ChatClient({ initialMessages }: ChatClientProps) {
   const [input, setInput] = useState("");
   const [isCreatingSandbox, setIsCreatingSandbox] = useState(false);
+  const { containerRef, isAtBottom, scrollToBottom } =
+    useScrollToBottom<HTMLDivElement>();
 
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -98,8 +100,8 @@ export function ChatClient({ initialMessages }: ChatClientProps) {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center bg-zinc-50 py-12 font-sans dark:bg-black">
-      <div className="w-full max-w-2xl flex flex-col gap-4 px-4">
+    <div className="flex h-screen flex-col items-center overflow-hidden bg-zinc-50 py-6 font-sans dark:bg-black">
+      <div className="flex h-full w-full max-w-4xl flex-col gap-4 px-4">
         <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">
           Assistant Agent
         </h1>
@@ -108,75 +110,109 @@ export function ChatClient({ initialMessages }: ChatClientProps) {
           Sandbox: {sandboxId}
         </p>
 
-        <div className="flex flex-col gap-3">
-          {messages.map((message) => (
-            <div
-              key={message.id}
-              className={`rounded-xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap ${
-                message.role === "user"
-                  ? "self-end bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                  : "self-start bg-white text-zinc-800 shadow-sm dark:bg-zinc-900 dark:text-zinc-200"
-              }`}
+        <div className="relative min-h-0 flex-1">
+          <div
+            ref={containerRef}
+            className="flex h-full flex-col gap-3 overflow-y-auto pr-1"
+          >
+            {messages.map((message) => (
+              <div
+                key={message.id}
+                className={`rounded-xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap ${
+                  message.role === "user"
+                    ? "self-end bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                    : "self-start bg-white text-zinc-800 shadow-sm dark:bg-zinc-900 dark:text-zinc-200"
+                }`}
+              >
+                {message.parts.map((part, i) => {
+                  switch (part.type) {
+                    case "text":
+                      return <span key={i}>{part.text}</span>;
+                    case "tool-bash":
+                      if (part.state === "output-available") {
+                        const args =
+                          part.output.args.length > 0
+                            ? ` ${part.output.args.join(" ")}`
+                            : "";
+                        const stdoutPreview = getOutputPreview(part.output.stdout);
+                        const stderrPreview = getOutputPreview(part.output.stderr);
+
+                        return (
+                          <div
+                            key={i}
+                            className="my-1 rounded-lg bg-zinc-100 px-3 py-2 text-zinc-800 dark:bg-zinc-950 dark:text-zinc-100"
+                          >
+                            <div className="font-mono text-xs">
+                              $ {part.output.command}
+                              {args}
+                            </div>
+                            <div className="mt-1 text-xs">
+                              exit {part.output.exitCode}
+                            </div>
+                            {stdoutPreview.preview ? (
+                              <div className="mt-2">
+                                <pre className="max-w-full overflow-x-auto overflow-y-hidden whitespace-pre rounded bg-white/60 p-2 text-xs dark:bg-black/40">
+                                  {stdoutPreview.preview}
+                                </pre>
+                                {stdoutPreview.hiddenLineCount > 0 ? (
+                                  <div className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+                                    +{stdoutPreview.hiddenLineCount} more line
+                                    {stdoutPreview.hiddenLineCount === 1 ? "" : "s"}
+                                  </div>
+                                ) : null}
+                              </div>
+                            ) : null}
+                            {stderrPreview.preview ? (
+                              <div className="mt-2">
+                                <pre className="max-w-full overflow-x-auto overflow-y-hidden whitespace-pre rounded bg-red-100 p-2 text-xs text-red-900 dark:bg-red-950/60 dark:text-red-100">
+                                  {stderrPreview.preview}
+                                </pre>
+                                {stderrPreview.hiddenLineCount > 0 ? (
+                                  <div className="mt-1 text-[11px] text-red-700 dark:text-red-300">
+                                    +{stderrPreview.hiddenLineCount} more line
+                                    {stderrPreview.hiddenLineCount === 1 ? "" : "s"}
+                                  </div>
+                                ) : null}
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      }
+
+                      if (
+                        part.state === "input-available" ||
+                        part.state === "input-streaming"
+                      ) {
+                        return (
+                          <div key={i} className="my-1 text-zinc-400">
+                            Running command
+                            {part.state === "input-available"
+                              ? `: ${part.input.command}`
+                              : ""}
+                            ...
+                          </div>
+                        );
+                      }
+
+                      return null;
+                    default:
+                      return null;
+                  }
+                })}
+              </div>
+            ))}
+          </div>
+
+          {!isAtBottom ? (
+            <button
+              type="button"
+              onClick={scrollToBottom}
+              aria-label="Jump to latest"
+              className="absolute bottom-3 left-1/2 flex h-8 w-8 -translate-x-1/2 items-center justify-center rounded-full bg-zinc-200 text-zinc-700 shadow-sm transition-colors hover:bg-zinc-300 dark:bg-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-600"
             >
-              {message.parts.map((part, i) => {
-                switch (part.type) {
-                  case "text":
-                    return <span key={i}>{part.text}</span>;
-                  case "tool-bash":
-                    if (part.state === "output-available") {
-                      const args =
-                        part.output.args.length > 0
-                          ? ` ${part.output.args.join(" ")}`
-                          : "";
-
-                      return (
-                        <div
-                          key={i}
-                          className="my-1 rounded-lg bg-zinc-100 px-3 py-2 text-zinc-800 dark:bg-zinc-950 dark:text-zinc-100"
-                        >
-                          <div className="font-mono text-xs">
-                            $ {part.output.command}
-                            {args}
-                          </div>
-                          <div className="mt-1 text-xs">
-                            exit {part.output.exitCode}
-                          </div>
-                          {part.output.stdout ? (
-                            <pre className="mt-2 overflow-x-auto rounded bg-white/60 p-2 text-xs dark:bg-black/40">
-                              {part.output.stdout}
-                            </pre>
-                          ) : null}
-                          {part.output.stderr ? (
-                            <pre className="mt-2 overflow-x-auto rounded bg-red-100 p-2 text-xs text-red-900 dark:bg-red-950/60 dark:text-red-100">
-                              {part.output.stderr}
-                            </pre>
-                          ) : null}
-                        </div>
-                      );
-                    }
-
-                    if (
-                      part.state === "input-available" ||
-                      part.state === "input-streaming"
-                    ) {
-                      return (
-                        <div key={i} className="my-1 text-zinc-400">
-                          Running command
-                          {part.state === "input-available"
-                            ? `: ${part.input.command}`
-                            : ""}
-                          ...
-                        </div>
-                      );
-                    }
-
-                    return null;
-                  default:
-                    return null;
-                }
-              })}
-            </div>
-          ))}
+              <span aria-hidden="true">&darr;</span>
+            </button>
+          ) : null}
         </div>
 
         <form onSubmit={handleSubmit} className="flex gap-2">
@@ -209,4 +245,85 @@ function isSandboxResponse(value: unknown): value is SandboxResponse {
   }
 
   return true;
+}
+
+function getOutputPreview(text: string, maxLines = 3) {
+  if (!text) {
+    return {
+      preview: "",
+      hiddenLineCount: 0,
+    };
+  }
+
+  const normalizedText = text.replaceAll("\r\n", "\n");
+  const lines = normalizedText.split("\n");
+
+  if (lines[lines.length - 1] === "") {
+    lines.pop();
+  }
+
+  return {
+    preview: lines.slice(0, maxLines).join("\n"),
+    hiddenLineCount: Math.max(lines.length - maxLines, 0),
+  };
+}
+
+function useScrollToBottom<T extends HTMLElement>() {
+  const containerRef = useRef<T>(null);
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const isAtBottomRef = useRef(true);
+
+  const scrollToBottom = useCallback(() => {
+    if (containerRef.current) {
+      containerRef.current.scrollTop = containerRef.current.scrollHeight;
+    }
+  }, []);
+
+  const handleScroll = useCallback(() => {
+    if (containerRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
+      const threshold = 10;
+      const atBottom = scrollHeight - scrollTop - clientHeight < threshold;
+
+      if (isAtBottomRef.current !== atBottom) {
+        isAtBottomRef.current = atBottom;
+        setIsAtBottom(atBottom);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const container = containerRef.current;
+
+    if (!container) {
+      return;
+    }
+
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    scrollToBottom();
+    handleScroll();
+
+    const mutationObserver = new MutationObserver(() => {
+      if (isAtBottomRef.current) {
+        requestAnimationFrame(scrollToBottom);
+      }
+    });
+
+    mutationObserver.observe(container, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+
+    return () => {
+      container.removeEventListener("scroll", handleScroll);
+      mutationObserver.disconnect();
+    };
+  }, [handleScroll, scrollToBottom]);
+
+  return {
+    containerRef,
+    isAtBottom,
+    scrollToBottom,
+  };
 }

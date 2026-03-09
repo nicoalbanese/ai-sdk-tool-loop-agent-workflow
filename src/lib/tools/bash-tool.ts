@@ -13,25 +13,41 @@ export const bashTool = tool({
     "Run a bash command inside the connected Vercel Sandbox. You can only run non-interactive commands. You can only create files in new folders like (tmp).",
   inputSchema: bashCommandSchema,
   execute: async ({ command, args, cwd }, { experimental_context }) => {
-    const sandbox = getAssistantSandbox(experimental_context);
-    const result = await sandbox.runCommand({
-      cmd: command,
-      args,
-      cwd,
-    });
+    try {
+      const sandbox = getAssistantSandbox(experimental_context);
+      const result = await sandbox.runCommand({
+        cmd: command,
+        args,
+        cwd,
+      });
 
-    const [stdout, stderr] = await Promise.all([
-      result.stdout(),
-      result.stderr(),
-    ]);
+      const [stdout, stderr] = await Promise.all([
+        result.stdout(),
+        result.stderr(),
+      ]);
 
-    return {
-      command,
-      args: args ?? [],
-      cwd: cwd ?? "/vercel/sandbox",
-      exitCode: result.exitCode,
-      stdout,
-      stderr,
-    };
+      return {
+        command,
+        args: args ?? [],
+        cwd: cwd ?? "/vercel/sandbox",
+        exitCode: result.exitCode,
+        stdout,
+        stderr,
+        error: null,
+      };
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error while running command";
+
+      return {
+        command,
+        args: args ?? [],
+        cwd: cwd ?? "/vercel/sandbox",
+        exitCode: null,
+        stdout: "",
+        stderr: "",
+        error: errorMessage,
+      };
+    }
   },
 });
