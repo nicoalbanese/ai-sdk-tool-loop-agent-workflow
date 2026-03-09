@@ -12,6 +12,7 @@ type Writable = WritableStream<UIMessageChunk>;
 export async function runAgent(
   messages: AssistantUIMessage[],
   options: CallOptions,
+  maxIterations = 20,
 ) {
   "use workflow";
 
@@ -25,9 +26,6 @@ export async function runAgent(
     role: "assistant",
     parts: [],
   };
-
-  const maxIterations = 10;
-
   for (let i = 0; i < maxIterations; i++) {
     const { responseMessages, finishReason, generatedParts } =
       await runAgentStep(modelMessages, messages, writable, options, messageId);
