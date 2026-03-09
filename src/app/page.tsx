@@ -1,208 +1,107 @@
-'use client';
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import type { AssistantUIMessage } from "@/lib/agents/assistant-agent";
+import { ChatClient } from "./chat-client";
 
-import { useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { useChat } from '@ai-sdk/react';
-import { DefaultChatTransport } from 'ai';
-import type { AssistantUIMessage } from '@/lib/agents/assistant-agent';
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-type SandboxResponse = {
-  sandboxId: string;
-};
+export default async function Home() {
+  const initialMessages = await loadInitialMessages();
 
-const transport = new DefaultChatTransport({ api: '/api/chat' });
+  return <ChatClient initialMessages={initialMessages} />;
+}
 
-export default function Home() {
-  const [input, setInput] = useState('');
-  const [isCreatingSandbox, setIsCreatingSandbox] = useState(false);
+async function loadInitialMessages() {
+  const assistantResponsesPath = join(
+    process.cwd(),
+    ".workflow-data",
+    "assistant-responses.jsonl",
+  );
 
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const sandboxId = searchParams.get('sandboxId');
+  try {
+    const fileContents = await readFile(assistantResponsesPath, "utf8");
+    const initialMessagesById = new Map<string, AssistantUIMessage>();
+    const messageIdsInOrder: string[] = [];
 
-  const { messages, sendMessage, status } = useChat<AssistantUIMessage>({
-    transport,
-  });
-
-  const createSandbox = async () => {
-    setIsCreatingSandbox(true);
-
-    try {
-      const response = await fetch('/api/sandbox', {
-        cache: 'no-store',
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to create sandbox');
+    for (const line of fileContents.split("\n")) {
+      const trimmedLine = line.trim();
+      if (!trimmedLine) {
+        continue;
       }
 
-      const payload = (await response.json()) as SandboxResponse;
-      const params = new URLSearchParams(searchParams.toString());
-      params.set('sandboxId', payload.sandboxId);
-      router.replace(`?${params.toString()}`);
-    } finally {
-      setIsCreatingSandbox(false);
-    }
-  };
+      const parsedMessage = parseAssistantUIMessage(trimmedLine);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+      if (!parsedMessage) {
+        continue;
+      }
 
-    if (!input.trim() || !sandboxId) {
-      return;
+      if (!initialMessagesById.has(parsedMessage.id)) {
+        messageIdsInOrder.push(parsedMessage.id);
+      }
+
+      initialMessagesById.set(parsedMessage.id, parsedMessage);
     }
 
-    sendMessage(
-      { text: input },
-      {
-        body: {
-          sandboxId,
-        },
-      },
-    );
+    const initialMessages: AssistantUIMessage[] = [];
 
-    setInput('');
-  };
+    for (const messageId of messageIdsInOrder) {
+      const message = initialMessagesById.get(messageId);
 
-  if (!sandboxId) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-4 font-sans dark:bg-black">
-        <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-sm dark:bg-zinc-900">
-          <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">Start a sandbox chat</h1>
-          <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
-            Create a new sandbox session to start chatting.
-          </p>
+      if (!message) {
+        continue;
+      }
 
-          <button
-            type="button"
-            onClick={() => void createSandbox()}
-            disabled={isCreatingSandbox}
-            className="mt-4 w-full rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-          >
-            {isCreatingSandbox ? 'Creating sandbox…' : 'Create new sandbox'}
-          </button>
-        </div>
-      </div>
-    );
+      initialMessages.push(message);
+    }
+
+    return initialMessages;
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      return [];
+    }
+
+    throw error;
+  }
+}
+
+function parseAssistantUIMessage(line: string) {
+  try {
+    const parsedValue: unknown = JSON.parse(line);
+
+    if (!isAssistantUIMessage(parsedValue)) {
+      return null;
+    }
+
+    return parsedValue;
+  } catch {
+    return null;
+  }
+}
+
+function isAssistantUIMessage(value: unknown): value is AssistantUIMessage {
+  if (typeof value !== "object" || value === null) {
+    return false;
   }
 
-  return (
-    <div className="flex min-h-screen flex-col items-center bg-zinc-50 py-12 font-sans dark:bg-black">
-      <div className="w-full max-w-2xl flex flex-col gap-4 px-4">
-        <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">Assistant Agent</h1>
+  if (!("id" in value) || typeof value.id !== "string") {
+    return false;
+  }
 
-        <p className="text-xs text-zinc-500 dark:text-zinc-400">Sandbox: {sandboxId}</p>
+  if (
+    !("role" in value) ||
+    (value.role !== "assistant" && value.role !== "user" && value.role !== "system")
+  ) {
+    return false;
+  }
 
-        <div className="flex flex-col gap-3">
-          {messages.map((message) => (
-            <div
-              key={message.id}
-              className={`rounded-xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap ${
-                message.role === 'user'
-                  ? 'self-end bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
-                  : 'self-start bg-white text-zinc-800 shadow-sm dark:bg-zinc-900 dark:text-zinc-200'
-              }`}
-            >
-              {message.parts.map((part, i) => {
-                switch (part.type) {
-                  case 'text':
-                    return <span key={i}>{part.text}</span>;
-                  case 'tool-weather':
-                    if (part.state === 'output-available') {
-                      return (
-                        <div
-                          key={i}
-                          className="my-1 rounded-lg bg-blue-50 px-3 py-2 text-blue-800 dark:bg-blue-950 dark:text-blue-200"
-                        >
-                          🌤 {part.output.location}: {part.output.temperature}°F, {part.output.condition}
-                        </div>
-                      );
-                    }
-                    if (part.state === 'input-available' || part.state === 'input-streaming') {
-                      return (
-                        <div key={i} className="my-1 text-zinc-400">
-                          Checking weather{part.state === 'input-available' ? ` for ${part.input.location}` : ''}…
-                        </div>
-                      );
-                    }
-                    return null;
-                  case 'tool-time':
-                    if (part.state === 'output-available') {
-                      return (
-                        <div
-                          key={i}
-                          className="my-1 rounded-lg bg-green-50 px-3 py-2 text-green-800 dark:bg-green-950 dark:text-green-200"
-                        >
-                          🕐 {part.output.timezone}: {part.output.currentTime}
-                        </div>
-                      );
-                    }
-                    if (part.state === 'input-available' || part.state === 'input-streaming') {
-                      return (
-                        <div key={i} className="my-1 text-zinc-400">
-                          Checking time{part.state === 'input-available' ? ` for ${part.input.timezone}` : ''}…
-                        </div>
-                      );
-                    }
-                    return null;
-                  case 'tool-bash':
-                    if (part.state === 'output-available') {
-                      const args = part.output.args.length > 0 ? ` ${part.output.args.join(' ')}` : '';
+  if (!("parts" in value) || !Array.isArray(value.parts)) {
+    return false;
+  }
 
-                      return (
-                        <div
-                          key={i}
-                          className="my-1 rounded-lg bg-zinc-100 px-3 py-2 text-zinc-800 dark:bg-zinc-950 dark:text-zinc-100"
-                        >
-                          <div className="font-mono text-xs">$ {part.output.command}{args}</div>
-                          <div className="mt-1 text-xs">exit {part.output.exitCode}</div>
-                          {part.output.stdout ? (
-                            <pre className="mt-2 overflow-x-auto rounded bg-white/60 p-2 text-xs dark:bg-black/40">
-                              {part.output.stdout}
-                            </pre>
-                          ) : null}
-                          {part.output.stderr ? (
-                            <pre className="mt-2 overflow-x-auto rounded bg-red-100 p-2 text-xs text-red-900 dark:bg-red-950/60 dark:text-red-100">
-                              {part.output.stderr}
-                            </pre>
-                          ) : null}
-                        </div>
-                      );
-                    }
+  return true;
+}
 
-                    if (part.state === 'input-available' || part.state === 'input-streaming') {
-                      return (
-                        <div key={i} className="my-1 text-zinc-400">
-                          Running command{part.state === 'input-available' ? `: ${part.input.command}` : ''}…
-                        </div>
-                      );
-                    }
-
-                    return null;
-                  default:
-                    return null;
-                }
-              })}
-            </div>
-          ))}
-        </div>
-
-        <form onSubmit={handleSubmit} className="flex gap-2">
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask about weather, time, or run bash commands..."
-            className="flex-1 rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-          />
-          <button
-            type="submit"
-            disabled={status !== 'ready'}
-            className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-          >
-            Send
-          </button>
-        </form>
-      </div>
-    </div>
-  );
+function isMissingFileError(error: unknown) {
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
