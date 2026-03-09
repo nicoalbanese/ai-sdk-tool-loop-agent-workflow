@@ -1,5 +1,5 @@
 import { getWritable } from "workflow";
-import { convertToModelMessages } from "ai";
+import { convertToModelMessages, generateId } from "ai";
 import {
   assistantAgent,
   AssistantUIMessage,
@@ -18,20 +18,24 @@ export async function runAgent(
   const writable = getWritable<UIMessageChunk>();
 
   let modelMessages = await toModelMessages(messages);
-  await sendStart(writable);
+  const messageId = await sendStart(writable);
+
+  const collectedUIMessage: AssistantUIMessage = {
+    id: messageId,
+    role: "assistant",
+    parts: [],
+  };
 
   const maxIterations = 10;
 
   for (let i = 0; i < maxIterations; i++) {
-    const { responseMessages, finishReason } = await runAgentStep(
-      modelMessages,
-      messages,
-      writable,
-      options,
-    );
+    const { responseMessages, finishReason, generatedParts } =
+      await runAgentStep(modelMessages, messages, writable, options, messageId);
     modelMessages = [...modelMessages, ...responseMessages];
+    collectedUIMessage.parts.push(...generatedParts);
     if (finishReason !== "tool-calls") {
       await sendFinish(writable);
+      await persistRun(collectedUIMessage);
       break;
     }
   }
@@ -44,13 +48,22 @@ async function toModelMessages(messages: AssistantUIMessage[]) {
   return convertToModelMessages(messages);
 }
 
+async function persistRun(uiMessage: AssistantUIMessage | undefined) {
+  "use step";
+  // persist the final message to a database, or trigger some other side effect
+  console.dir(uiMessage, { depth: null });
+}
+
 async function runAgentStep(
   messages: ModelMessage[],
   originalMessages: AssistantUIMessage[],
   writable: Writable,
   callOptions: CallOptions,
+  messageId: string,
 ) {
   "use step";
+
+  let generatedParts: AssistantUIMessage["parts"] = [];
 
   const result = await assistantAgent.stream({
     messages,
@@ -60,6 +73,10 @@ async function runAgentStep(
     sendStart: false,
     sendFinish: false,
     originalMessages,
+    generateMessageId: () => messageId,
+    onFinish: ({ responseMessage }) => {
+      generatedParts = responseMessage.parts;
+    },
   });
   const reader = stream.getReader();
   const writer = writable.getWriter();
@@ -80,6 +97,7 @@ async function runAgentStep(
 
   return {
     responseMessages: response.messages,
+    generatedParts,
     finishReason,
   };
 }
@@ -89,6 +107,7 @@ async function sendStart(writable: Writable) {
 
   const writer = writable.getWriter();
   await writer.write({ type: "start" });
+  return generateId();
 }
 
 async function sendFinish(writable: Writable) {
