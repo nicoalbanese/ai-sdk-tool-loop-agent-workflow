@@ -1,9 +1,10 @@
-import { createUIMessageStreamResponse, type UIMessage } from "ai";
+import { createUIMessageStreamResponse } from "ai";
 import { start } from "workflow/api";
 import { handleChat } from "@/workflows/chat";
+import { AssistantUIMessage } from "@/lib/agents/assistant-agent";
 
 type ChatRequestBody = {
-  messages: UIMessage[];
+  messages: AssistantUIMessage[];
   sandboxId: string;
 };
 

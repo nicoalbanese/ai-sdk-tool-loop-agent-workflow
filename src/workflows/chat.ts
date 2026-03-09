@@ -1,15 +1,14 @@
 import { getWritable } from "workflow";
 import { convertToModelMessages } from "ai";
-import { assistantAgent, CallOptions } from "@/lib/agents/assistant-agent";
+import { assistantAgent, AssistantUIMessage, CallOptions } from "@/lib/agents/assistant-agent";
 import type {
-  UIMessage,
   UIMessageChunk,
   ModelMessage,
 } from "ai";
 
 type Writable = WritableStream<UIMessageChunk>;
 
-export async function handleChat(messages: UIMessage[], options: CallOptions) {
+export async function handleChat(messages: AssistantUIMessage[], options: CallOptions) {
   "use workflow";
 
   const writable = getWritable<UIMessageChunk>();
@@ -36,14 +35,14 @@ export async function handleChat(messages: UIMessage[], options: CallOptions) {
   await closeStream(writable);
 }
 
-async function toModelMessages(messages: UIMessage[]) {
+async function toModelMessages(messages: AssistantUIMessage[]) {
   "use step";
   return convertToModelMessages(messages);
 }
 
 async function runAgentStep(
   messages: ModelMessage[],
-  originalMessages: UIMessage[],
+  originalMessages: AssistantUIMessage[],
   writable: Writable,
   callOptions: CallOptions,
 ) {

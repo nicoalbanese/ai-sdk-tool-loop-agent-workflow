@@ -1,13 +1,11 @@
 import {
   gateway,
   GatewayModelId,
-  stepCountIs,
   ToolLoopAgent,
   InferAgentUIMessage,
+  stepCountIs,
 } from "ai";
 import { z } from "zod";
-import { weatherTool } from "../tools/weather-tool";
-import { timeTool } from "../tools/time-tool";
 import { bashTool } from "../tools/bash-tool";
 import { reconnectSandbox } from "../sandbox/resolve-sandbox";
 import type { AssistantAgentContext } from "../sandbox/assistant-context";
@@ -41,6 +39,7 @@ export const assistantAgent = new ToolLoopAgent({
       // for things like sandbox that aren't serializable, we reconnect in prepareCall,
       // then pass the connected instance through context for tool execution.
       experimental_context: sandboxContext,
+      stopWhen: options.type === "durable" ? stepCountIs(1) : stepCountIs(20),
     };
   },
 });

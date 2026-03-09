@@ -1,24 +1,24 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { useChat } from '@ai-sdk/react';
-import { DefaultChatTransport } from 'ai';
-import type { AssistantUIMessage } from '@/lib/agents/assistant-agent';
+import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useChat } from "@ai-sdk/react";
+import { DefaultChatTransport } from "ai";
+import type { AssistantUIMessage } from "@/lib/agents/assistant-agent";
 
 type SandboxResponse = {
   sandboxId: string;
 };
 
-const transport = new DefaultChatTransport({ api: '/api/chat' });
+const transport = new DefaultChatTransport({ api: "/api/chat" });
 
 export default function Home() {
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState("");
   const [isCreatingSandbox, setIsCreatingSandbox] = useState(false);
 
   const router = useRouter();
   const searchParams = useSearchParams();
-  const sandboxId = searchParams.get('sandboxId');
+  const sandboxId = searchParams.get("sandboxId");
 
   const { messages, sendMessage, status } = useChat<AssistantUIMessage>({
     transport,
@@ -28,17 +28,17 @@ export default function Home() {
     setIsCreatingSandbox(true);
 
     try {
-      const response = await fetch('/api/sandbox', {
-        cache: 'no-store',
+      const response = await fetch("/api/sandbox", {
+        cache: "no-store",
       });
 
       if (!response.ok) {
-        throw new Error('Failed to create sandbox');
+        throw new Error("Failed to create sandbox");
       }
 
       const payload = (await response.json()) as SandboxResponse;
       const params = new URLSearchParams(searchParams.toString());
-      params.set('sandboxId', payload.sandboxId);
+      params.set("sandboxId", payload.sandboxId);
       router.replace(`?${params.toString()}`);
     } finally {
       setIsCreatingSandbox(false);
@@ -61,14 +61,16 @@ export default function Home() {
       },
     );
 
-    setInput('');
+    setInput("");
   };
 
   if (!sandboxId) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-4 font-sans dark:bg-black">
         <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-sm dark:bg-zinc-900">
-          <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">Start a sandbox chat</h1>
+          <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">
+            Start a sandbox chat
+          </h1>
           <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
             Create a new sandbox session to start chatting.
           </p>
@@ -79,7 +81,7 @@ export default function Home() {
             disabled={isCreatingSandbox}
             className="mt-4 w-full rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
           >
-            {isCreatingSandbox ? 'Creating sandbox…' : 'Create new sandbox'}
+            {isCreatingSandbox ? "Creating sandbox…" : "Create new sandbox"}
           </button>
         </div>
       </div>
@@ -89,73 +91,47 @@ export default function Home() {
   return (
     <div className="flex min-h-screen flex-col items-center bg-zinc-50 py-12 font-sans dark:bg-black">
       <div className="w-full max-w-2xl flex flex-col gap-4 px-4">
-        <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">Assistant Agent</h1>
+        <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">
+          Assistant Agent
+        </h1>
 
-        <p className="text-xs text-zinc-500 dark:text-zinc-400">Sandbox: {sandboxId}</p>
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          Sandbox: {sandboxId}
+        </p>
 
         <div className="flex flex-col gap-3">
           {messages.map((message) => (
             <div
               key={message.id}
               className={`rounded-xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap ${
-                message.role === 'user'
-                  ? 'self-end bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
-                  : 'self-start bg-white text-zinc-800 shadow-sm dark:bg-zinc-900 dark:text-zinc-200'
+                message.role === "user"
+                  ? "self-end bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                  : "self-start bg-white text-zinc-800 shadow-sm dark:bg-zinc-900 dark:text-zinc-200"
               }`}
             >
               {message.parts.map((part, i) => {
                 switch (part.type) {
-                  case 'text':
+                  case "text":
                     return <span key={i}>{part.text}</span>;
-                  case 'tool-weather':
-                    if (part.state === 'output-available') {
-                      return (
-                        <div
-                          key={i}
-                          className="my-1 rounded-lg bg-blue-50 px-3 py-2 text-blue-800 dark:bg-blue-950 dark:text-blue-200"
-                        >
-                          🌤 {part.output.location}: {part.output.temperature}°F, {part.output.condition}
-                        </div>
-                      );
-                    }
-                    if (part.state === 'input-available' || part.state === 'input-streaming') {
-                      return (
-                        <div key={i} className="my-1 text-zinc-400">
-                          Checking weather{part.state === 'input-available' ? ` for ${part.input.location}` : ''}…
-                        </div>
-                      );
-                    }
-                    return null;
-                  case 'tool-time':
-                    if (part.state === 'output-available') {
-                      return (
-                        <div
-                          key={i}
-                          className="my-1 rounded-lg bg-green-50 px-3 py-2 text-green-800 dark:bg-green-950 dark:text-green-200"
-                        >
-                          🕐 {part.output.timezone}: {part.output.currentTime}
-                        </div>
-                      );
-                    }
-                    if (part.state === 'input-available' || part.state === 'input-streaming') {
-                      return (
-                        <div key={i} className="my-1 text-zinc-400">
-                          Checking time{part.state === 'input-available' ? ` for ${part.input.timezone}` : ''}…
-                        </div>
-                      );
-                    }
-                    return null;
-                  case 'tool-bash':
-                    if (part.state === 'output-available') {
-                      const args = part.output.args.length > 0 ? ` ${part.output.args.join(' ')}` : '';
+                  case "tool-bash":
+                    if (part.state === "output-available") {
+                      const args =
+                        part.output.args.length > 0
+                          ? ` ${part.output.args.join(" ")}`
+                          : "";
 
                       return (
                         <div
                           key={i}
                           className="my-1 rounded-lg bg-zinc-100 px-3 py-2 text-zinc-800 dark:bg-zinc-950 dark:text-zinc-100"
                         >
-                          <div className="font-mono text-xs">$ {part.output.command}{args}</div>
-                          <div className="mt-1 text-xs">exit {part.output.exitCode}</div>
+                          <div className="font-mono text-xs">
+                            $ {part.output.command}
+                            {args}
+                          </div>
+                          <div className="mt-1 text-xs">
+                            exit {part.output.exitCode}
+                          </div>
                           {part.output.stdout ? (
                             <pre className="mt-2 overflow-x-auto rounded bg-white/60 p-2 text-xs dark:bg-black/40">
                               {part.output.stdout}
@@ -170,10 +146,17 @@ export default function Home() {
                       );
                     }
 
-                    if (part.state === 'input-available' || part.state === 'input-streaming') {
+                    if (
+                      part.state === "input-available" ||
+                      part.state === "input-streaming"
+                    ) {
                       return (
                         <div key={i} className="my-1 text-zinc-400">
-                          Running command{part.state === 'input-available' ? `: ${part.input.command}` : ''}…
+                          Running command
+                          {part.state === "input-available"
+                            ? `: ${part.input.command}`
+                            : ""}
+                          …
                         </div>
                       );
                     }
@@ -196,7 +179,7 @@ export default function Home() {
           />
           <button
             type="submit"
-            disabled={status !== 'ready'}
+            disabled={status !== "ready"}
             className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
           >
             Send
