@@ -1,6 +1,5 @@
 import { Sandbox } from "@vercel/sandbox";
 
-const SANDBOX_RUNTIME = "node22";
 const SANDBOX_TIMEOUT_MS = 30 * 60 * 1000;
 const SANDBOX_TIMEOUT_EXTENSION_MS = 15 * 60 * 1000;
 
@@ -13,7 +12,6 @@ const nonReusableStatuses = new Set([
 
 export async function createSandbox() {
   return Sandbox.create({
-    runtime: SANDBOX_RUNTIME,
     timeout: SANDBOX_TIMEOUT_MS,
     networkPolicy: "allow-all",
   });

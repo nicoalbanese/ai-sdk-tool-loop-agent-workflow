@@ -2,21 +2,10 @@ import { getWritable } from "workflow";
 import { convertToModelMessages, generateId } from "ai";
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import {
-  assistantAgent,
-  callOptionsSchema,
-} from "@/lib/agents/assistant-agent";
 import type { UIMessageChunk, ModelMessage, InferAgentUIMessage } from "ai";
 import z from "zod";
+import { agent, AgentCallOptionsSchema } from "./setup";
 
-// ---
-// SET YOUR AGENT HERE
-const agent = assistantAgent;
-type AgentCallOptionsSchema = typeof callOptionsSchema;
-// AND THATS IT
-// ---
-
-// The rest can be inferred
 type AgentMessage = InferAgentUIMessage<typeof agent>;
 type CallOptions = z.infer<AgentCallOptionsSchema>;
 
