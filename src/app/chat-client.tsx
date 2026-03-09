@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import { WorkflowChatTransport } from "@workflow/ai";
+import { Streamdown } from "streamdown";
 import type { AssistantUIMessage } from "@/lib/agents/assistant-agent";
 
 type SandboxResponse = {
@@ -102,6 +103,8 @@ export function ChatClient({ initialMessages }: ChatClientProps) {
     transport,
     messages: initialMessages,
   });
+
+  const latestMessageId = messages[messages.length - 1]?.id;
 
   useEffect(() => {
     if (status === "ready") {
@@ -227,16 +230,29 @@ export function ChatClient({ initialMessages }: ChatClientProps) {
             {messages.map((message) => (
               <div
                 key={message.id}
-                className={`rounded-xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap ${
+                className={`rounded-xl px-4 py-3 text-sm leading-relaxed ${
                   message.role === "user"
                     ? "self-end bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
                     : "self-start bg-white text-zinc-800 shadow-sm dark:bg-zinc-900 dark:text-zinc-200"
                 }`}
               >
                 {message.parts.map((part, i) => {
+                  const isStreamingAssistantMessage =
+                    message.role === "assistant" &&
+                    message.id === latestMessageId &&
+                    status !== "ready";
+
                   switch (part.type) {
                     case "text":
-                      return <span key={i}>{part.text}</span>;
+                      return (
+                        <Streamdown
+                          key={i}
+                          mode={message.role === "assistant" ? "streaming" : "static"}
+                          isAnimating={isStreamingAssistantMessage}
+                        >
+                          {part.text}
+                        </Streamdown>
+                      );
                     case "tool-bash":
                       if (part.state === "output-available") {
                         const args =
