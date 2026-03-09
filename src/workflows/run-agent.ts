@@ -1,10 +1,12 @@
-import { getWritable } from "workflow";
-import { convertToModelMessages, generateId } from "ai";
+import { getWritable, getWorkflowMetadata } from "workflow";
+import { getRun } from "workflow/api";
+import { convertToModelMessages } from "ai";
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { UIMessageChunk, ModelMessage, InferAgentUIMessage } from "ai";
 import z from "zod";
 import { agent, AgentCallOptionsSchema } from "./setup";
+import { persistAssistantMessage } from "@/lib/history/persist-assistant-message";
 
 type AgentMessage = InferAgentUIMessage<typeof agent>;
 type CallOptions = z.infer<AgentCallOptionsSchema>;
@@ -18,21 +20,23 @@ export async function runAgent(
 ) {
   "use workflow";
 
+  const { workflowRunId } = getWorkflowMetadata();
   const writable = getWritable<UIMessageChunk>();
 
   await persistLatestUserMessage(messages);
 
   let modelMessages = await toModelMessages(messages);
-  const messageId = await sendStart(writable);
+  await sendStart(writable, workflowRunId);
 
   for (let i = 0; i < maxIterations; i++) {
-    const { responseMessages, finishReason } = await runAgentStep(
+    const { responseMessages, finishReason, responseMessage } = await runAgentStep(
       modelMessages,
       messages,
       writable,
       options,
-      messageId,
+      workflowRunId,
     );
+    await persistAssistantResponse(responseMessage);
     modelMessages = [...modelMessages, ...responseMessages];
     if (finishReason !== "tool-calls") {
       await sendFinish(writable);
@@ -79,49 +83,82 @@ async function runAgentStep(
   originalMessages: AgentMessage[],
   writable: Writable,
   callOptions: CallOptions,
-  messageId: string,
+  workflowRunId: string,
 ) {
   "use step";
 
-  const result = await agent.stream({
-    messages,
-    options: callOptions,
-  });
-  const stream = result.toUIMessageStream({
-    sendStart: false,
-    sendFinish: false,
-    originalMessages,
-    generateMessageId: () => messageId,
-  });
-  const reader = stream.getReader();
-  const writer = writable.getWriter();
+  const abortController = new AbortController();
+  const stopMonitor = startStopMonitor(workflowRunId, abortController);
+  let responseMessage: AgentMessage | null = null;
 
   try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      await writer.write(value);
+    const result = await agent.stream({
+      messages,
+      options: callOptions,
+      abortSignal: abortController.signal,
+    });
+    const stream = result.toUIMessageStream({
+      sendStart: false,
+      sendFinish: false,
+      originalMessages,
+      generateMessageId: () => workflowRunId,
+      onFinish: ({ responseMessage: finishedResponseMessage }) => {
+        responseMessage = finishedResponseMessage;
+      },
+    });
+    const reader = stream.getReader();
+    const writer = writable.getWriter();
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        await writer.write(value);
+      }
+    } finally {
+      reader.releaseLock();
+      writer.releaseLock();
     }
+
+    const response = await result.response;
+    const finishReason = await result.finishReason;
+
+    return {
+      responseMessages: response.messages,
+      finishReason,
+      responseMessage,
+    };
+  } catch (error) {
+    if (isAbortError(error)) {
+      return {
+        responseMessages: [],
+        finishReason: "stop",
+        responseMessage,
+      };
+    }
+
+    throw error;
   } finally {
-    reader.releaseLock();
-    writer.releaseLock();
+    stopMonitor.stop();
+    await stopMonitor.done;
   }
-
-  const response = await result.response;
-  const finishReason = await result.finishReason;
-
-  return {
-    responseMessages: response.messages,
-    finishReason,
-  };
 }
 
-async function sendStart(writable: Writable) {
+async function persistAssistantResponse(message: AgentMessage | null) {
+  "use step";
+
+  if (!message || message.role !== "assistant") {
+    return;
+  }
+
+  await persistAssistantMessage(message);
+}
+
+async function sendStart(writable: Writable, messageId: string) {
   "use step";
 
   const writer = writable.getWriter();
-  await writer.write({ type: "start" });
-  return generateId();
+  await writer.write({ type: "start", messageId });
 }
 
 async function sendFinish(writable: Writable) {
@@ -134,4 +171,47 @@ async function closeStream(writable: Writable) {
   "use step";
 
   await writable.close();
+}
+
+function startStopMonitor(runId: string, abortController: AbortController) {
+  let shouldStop = false;
+
+  const done = (async () => {
+    const run = getRun(runId);
+
+    while (!shouldStop && !abortController.signal.aborted) {
+      let runStatus: "pending" | "running" | "completed" | "failed" | "cancelled";
+
+      try {
+        runStatus = await run.status;
+      } catch {
+        await delay(150);
+        continue;
+      }
+
+      if (runStatus === "cancelled") {
+        abortController.abort();
+        return;
+      }
+
+      await delay(150);
+    }
+  })();
+
+  return {
+    stop() {
+      shouldStop = true;
+    },
+    done,
+  };
+}
+
+function delay(ms: number) {
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof Error && error.name === "AbortError";
 }

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport } from "ai";
+import { WorkflowChatTransport } from "@workflow/ai";
 import type { AssistantUIMessage } from "@/lib/agents/assistant-agent";
 
 type SandboxResponse = {
@@ -13,6 +13,8 @@ type SandboxResponse = {
 type ChatClientProps = {
   initialMessages: AssistantUIMessage[];
 };
+
+const WORKFLOW_RUN_ID_STORAGE_KEY_PREFIX = "active-workflow-run-id";
 
 export function ChatClient({ initialMessages }: ChatClientProps) {
   const [input, setInput] = useState("");
@@ -28,32 +30,81 @@ export function ChatClient({ initialMessages }: ChatClientProps) {
   const searchParams = useSearchParams();
   const sandboxId = searchParams.get("sandboxId");
 
+  useEffect(() => {
+    if (!sandboxId) {
+      setActiveWorkflowRunId(null);
+      return;
+    }
+
+    setActiveWorkflowRunId(getStoredWorkflowRunId(sandboxId));
+  }, [sandboxId]);
+
   const transport = useMemo(
     () =>
-      new DefaultChatTransport<AssistantUIMessage>({
+      new WorkflowChatTransport<AssistantUIMessage>({
         api: "/api/chat",
-        fetch: async (input, init) => {
-          const response = await fetch(input, init);
+        onChatSendMessage: (response) => {
+          if (!sandboxId) {
+            return;
+          }
+
           const workflowRunId = response.headers.get("x-workflow-run-id");
 
           if (workflowRunId) {
+            setStoredWorkflowRunId(sandboxId, workflowRunId);
             setActiveWorkflowRunId(workflowRunId);
           }
+        },
+        onChatEnd: () => {
+          if (!sandboxId) {
+            return;
+          }
 
-          return response;
+          clearStoredWorkflowRunId(sandboxId);
+          setActiveWorkflowRunId(null);
+        },
+        prepareSendMessagesRequest: ({ messages }) => {
+          if (!sandboxId) {
+            throw new Error("sandboxId is required");
+          }
+
+          return {
+            body: {
+              messages,
+              sandboxId,
+            },
+          };
+        },
+        prepareReconnectToStreamRequest: ({ api }) => {
+          if (!sandboxId) {
+            return { api };
+          }
+
+          const workflowRunId = getStoredWorkflowRunId(sandboxId);
+
+          if (!workflowRunId) {
+            return { api };
+          }
+
+          return {
+            api: `/api/chat/${encodeURIComponent(workflowRunId)}/stream`,
+          };
         },
       }),
-    [],
+    [sandboxId],
   );
 
+  const stopTargetRunId =
+    activeWorkflowRunId ?? (sandboxId ? getStoredWorkflowRunId(sandboxId) : null);
+
   const { messages, sendMessage, status, stop } = useChat<AssistantUIMessage>({
+    resume: Boolean(stopTargetRunId),
     transport,
     messages: initialMessages,
   });
 
   useEffect(() => {
     if (status === "ready") {
-      setActiveWorkflowRunId(null);
       setIsStoppingWorkflow(false);
     }
   }, [status]);
@@ -90,20 +141,16 @@ export function ChatClient({ initialMessages }: ChatClientProps) {
       return;
     }
 
-    sendMessage(
-      { text: input },
-      {
-        body: {
-          sandboxId,
-        },
-      },
-    );
+    sendMessage({ text: input });
 
     setInput("");
   };
 
   const handleStopWorkflow = async () => {
-    if (!activeWorkflowRunId || status === "ready") {
+    const workflowRunId = stopTargetRunId;
+    const latestAssistantMessage = getLatestAssistantMessage(messages);
+
+    if (!workflowRunId || status === "ready") {
       return;
     }
 
@@ -113,10 +160,14 @@ export function ChatClient({ initialMessages }: ChatClientProps) {
     try {
       const response = await fetch("/api/chat/stop", {
         method: "POST",
+        keepalive: true,
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ runId: activeWorkflowRunId }),
+        body: JSON.stringify({
+          runId: workflowRunId,
+          assistantMessage: latestAssistantMessage,
+        }),
       });
 
       if (!response.ok) {
@@ -124,6 +175,11 @@ export function ChatClient({ initialMessages }: ChatClientProps) {
       }
     } finally {
       setIsStoppingWorkflow(false);
+
+      if (sandboxId) {
+        clearStoredWorkflowRunId(sandboxId);
+      }
+
       setActiveWorkflowRunId(null);
     }
   };
@@ -285,7 +341,7 @@ export function ChatClient({ initialMessages }: ChatClientProps) {
           <button
             type="button"
             onClick={() => void handleStopWorkflow()}
-            disabled={status === "ready" || !activeWorkflowRunId || isStoppingWorkflow}
+            disabled={status === "ready" || !stopTargetRunId || isStoppingWorkflow}
             className="rounded-full border border-zinc-300 bg-white px-5 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
           >
             {isStoppingWorkflow ? "Stopping..." : "Stop"}
@@ -306,6 +362,44 @@ function isSandboxResponse(value: unknown): value is SandboxResponse {
   }
 
   return true;
+}
+
+function getStoredWorkflowRunId(sandboxId: string) {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  return window.localStorage.getItem(getWorkflowRunIdStorageKey(sandboxId));
+}
+
+function setStoredWorkflowRunId(sandboxId: string, runId: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(getWorkflowRunIdStorageKey(sandboxId), runId);
+}
+
+function clearStoredWorkflowRunId(sandboxId: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.removeItem(getWorkflowRunIdStorageKey(sandboxId));
+}
+
+function getWorkflowRunIdStorageKey(sandboxId: string) {
+  return `${WORKFLOW_RUN_ID_STORAGE_KEY_PREFIX}:${sandboxId}`;
+}
+
+function getLatestAssistantMessage(messages: AssistantUIMessage[]) {
+  const lastMessage = messages[messages.length - 1];
+
+  if (!lastMessage || lastMessage.role !== "assistant") {
+    return undefined;
+  }
+
+  return lastMessage;
 }
 
 function getOutputPreview(text: string, maxLines = 3) {

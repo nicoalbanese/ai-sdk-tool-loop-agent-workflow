@@ -26,18 +26,19 @@ export const bashTool = tool({
   description:
     "Run a non-interactive command in the connected Vercel Sandbox via runCommand({ cmd, args, cwd }). Always split executable and arguments: use command='ls' with args=['-la'], never command='ls -la'.",
   inputSchema: bashCommandSchema,
-  execute: async ({ command, args, cwd }, { experimental_context }) => {
+  execute: async ({ command, args, cwd }, { experimental_context, abortSignal }) => {
     try {
       const sandbox = getAssistantSandbox(experimental_context);
       const result = await sandbox.runCommand({
         cmd: command,
         args,
         cwd,
+        signal: abortSignal,
       });
 
       const [stdout, stderr] = await Promise.all([
-        result.stdout(),
-        result.stderr(),
+        result.stdout({ signal: abortSignal }),
+        result.stderr({ signal: abortSignal }),
       ]);
 
       return {

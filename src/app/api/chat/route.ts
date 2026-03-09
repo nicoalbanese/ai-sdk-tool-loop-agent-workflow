@@ -1,9 +1,8 @@
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
-import { appendFile, mkdir } from "node:fs/promises";
-import { dirname, join } from "node:path";
 import { start } from "workflow/api";
 import { runAgent } from "@/workflows/run-agent";
 import type { AssistantUIMessage } from "@/lib/agents/assistant-agent";
+import { persistAssistantMessage } from "@/lib/history/persist-assistant-message";
 
 type ChatRequestBody = {
   messages: AssistantUIMessage[];
@@ -45,6 +44,7 @@ export async function POST(request: Request) {
 
   const stream = createUIMessageStream<AssistantUIMessage>({
     originalMessages: messages,
+    generateId: () => run.runId,
     execute: ({ writer }) => {
       writer.merge(run.readable);
     },
@@ -75,19 +75,4 @@ function isChatRequestBody(value: unknown): value is ChatRequestBody {
   }
 
   return true;
-}
-
-async function persistAssistantMessage(message: AssistantUIMessage) {
-  const assistantResponsesPath = join(
-    process.cwd(),
-    ".workflow-data",
-    "assistant-responses.jsonl",
-  );
-
-  await mkdir(dirname(assistantResponsesPath), { recursive: true });
-  await appendFile(
-    assistantResponsesPath,
-    `${JSON.stringify(message)}\n`,
-    "utf8",
-  );
 }

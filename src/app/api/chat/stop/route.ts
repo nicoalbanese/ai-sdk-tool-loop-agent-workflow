@@ -1,7 +1,10 @@
 import { getRun } from "workflow/api";
+import type { AssistantUIMessage } from "@/lib/agents/assistant-agent";
+import { persistAssistantMessage } from "@/lib/history/persist-assistant-message";
 
 type StopWorkflowRequestBody = {
   runId: string;
+  assistantMessage?: AssistantUIMessage;
 };
 
 export async function POST(request: Request) {
@@ -18,6 +21,10 @@ export async function POST(request: Request) {
   }
 
   try {
+    if (requestBody.assistantMessage) {
+      await persistAssistantMessage(requestBody.assistantMessage);
+    }
+
     const run = getRun(requestBody.runId);
     await run.cancel();
 
@@ -41,5 +48,33 @@ function isStopWorkflowRequestBody(
     return false;
   }
 
+  if (
+    "assistantMessage" in value &&
+    value.assistantMessage !== undefined &&
+    !isAssistantMessage(value.assistantMessage)
+  ) {
+    return false;
+  }
+
   return value.runId.length > 0;
+}
+
+function isAssistantMessage(value: unknown): value is AssistantUIMessage {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  if (!("id" in value) || typeof value.id !== "string") {
+    return false;
+  }
+
+  if (!("role" in value) || value.role !== "assistant") {
+    return false;
+  }
+
+  if (!("parts" in value) || !Array.isArray(value.parts)) {
+    return false;
+  }
+
+  return true;
 }
