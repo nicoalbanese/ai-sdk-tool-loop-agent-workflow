@@ -10,16 +10,12 @@ const assistantResponsesPath = join(
 );
 
 let writeQueue: Promise<void> = Promise.resolve();
-const persistedAssistantIds = new Set<string>();
+const persistedAssistantSnapshots = new Map<string, string>();
 
-function enqueueWrite(message: UIMessage) {
+function enqueueWrite(serializedMessage: string) {
   const operation = async () => {
     await mkdir(dirname(assistantResponsesPath), { recursive: true });
-    await appendFile(
-      assistantResponsesPath,
-      `${JSON.stringify(message)}\n`,
-      "utf8",
-    );
+    await appendFile(assistantResponsesPath, `${serializedMessage}\n`, "utf8");
   };
 
   // Chain writes so they never run concurrently
@@ -28,13 +24,17 @@ function enqueueWrite(message: UIMessage) {
 }
 
 export async function persistAssistantMessage(message: AssistantUIMessage) {
-  if (persistedAssistantIds.has(message.id)) {
+  const serializedMessage = JSON.stringify(message);
+  const lastSnapshot = persistedAssistantSnapshots.get(message.id);
+
+  if (lastSnapshot === serializedMessage) {
     return;
   }
-  persistedAssistantIds.add(message.id);
-  return enqueueWrite(message);
+
+  await enqueueWrite(serializedMessage);
+  persistedAssistantSnapshots.set(message.id, serializedMessage);
 }
 
 export async function persistUserMessage(message: UIMessage) {
-  return enqueueWrite(message);
+  return enqueueWrite(JSON.stringify(message));
 }
