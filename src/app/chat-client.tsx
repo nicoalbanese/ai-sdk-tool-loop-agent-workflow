@@ -23,6 +23,9 @@ export function ChatClient({ initialMessages }: ChatClientProps) {
   const [activeWorkflowRunId, setActiveWorkflowRunId] = useState<string | null>(
     null,
   );
+  const [resumeWorkflowRunId, setResumeWorkflowRunId] = useState<string | null>(
+    null,
+  );
   const [isStoppingWorkflow, setIsStoppingWorkflow] = useState(false);
   const { containerRef, isAtBottom, scrollToBottom } =
     useScrollToBottom<HTMLDivElement>();
@@ -34,10 +37,13 @@ export function ChatClient({ initialMessages }: ChatClientProps) {
   useEffect(() => {
     if (!sandboxId) {
       setActiveWorkflowRunId(null);
+      setResumeWorkflowRunId(null);
       return;
     }
 
-    setActiveWorkflowRunId(getStoredWorkflowRunId(sandboxId));
+    const storedWorkflowRunId = getStoredWorkflowRunId(sandboxId);
+    setActiveWorkflowRunId(storedWorkflowRunId);
+    setResumeWorkflowRunId(storedWorkflowRunId);
   }, [sandboxId]);
 
   const transport = useMemo(
@@ -63,6 +69,7 @@ export function ChatClient({ initialMessages }: ChatClientProps) {
 
           clearStoredWorkflowRunId(sandboxId);
           setActiveWorkflowRunId(null);
+          setResumeWorkflowRunId(null);
         },
         prepareSendMessagesRequest: ({ messages }) => {
           if (!sandboxId) {
@@ -98,7 +105,7 @@ export function ChatClient({ initialMessages }: ChatClientProps) {
   const stopTargetRunId = activeWorkflowRunId;
 
   const { messages, sendMessage, status, stop } = useChat<AssistantUIMessage>({
-    resume: Boolean(stopTargetRunId),
+    resume: Boolean(resumeWorkflowRunId),
     transport,
     messages: initialMessages,
   });
@@ -181,6 +188,7 @@ export function ChatClient({ initialMessages }: ChatClientProps) {
       }
 
       setActiveWorkflowRunId(null);
+      setResumeWorkflowRunId(null);
     } finally {
       setIsStoppingWorkflow(false);
     }
