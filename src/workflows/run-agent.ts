@@ -24,11 +24,12 @@ export async function runAgent(
   const { workflowRunId } = getWorkflowMetadata();
   const writable = getWritable<UIMessageChunk>();
 
-  await persistLatestUserMessage(messages);
-
-  let modelMessages = await toModelMessages(messages);
+  let [modelMessages] = await Promise.all([
+    toModelMessages(messages),
+    persistLatestUserMessage(messages),
+    sendStart(writable, workflowRunId),
+  ]);
   let latestAssistantMessage: AgentMessage | undefined;
-  await sendStart(writable, workflowRunId);
 
   let didFinish = false;
   let wasAborted = false;
