@@ -5,7 +5,6 @@ import {
 } from "ai";
 import { getRun } from "workflow/api";
 import type { AssistantUIMessage } from "@/lib/agents/assistant-agent";
-import { persistAssistantMessage } from "@/lib/history/persist-assistant-message";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -43,10 +42,6 @@ export async function GET(request: Request, { params }: RouteContext) {
     generateId: () => id,
     execute: ({ writer }) => {
       writer.merge(readable);
-    },
-    // Keep persistence consistent when a response finishes via reconnect.
-    onFinish: async ({ responseMessage }) => {
-      await persistAssistantMessage(responseMessage);
     },
   });
 

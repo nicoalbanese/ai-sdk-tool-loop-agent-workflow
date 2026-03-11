@@ -21,8 +21,8 @@ export async function POST(request: Request) {
   }
 
   try {
-    // Stop can beat stream onFinish during refresh/unload, so persist
-    // the latest client snapshot before cancelling the run.
+    // Persist the latest client snapshot before cancelling so
+    // mid-step output is not lost on abrupt stop.
     if (requestBody.assistantMessage) {
       await persistAssistantMessage(requestBody.assistantMessage);
     }

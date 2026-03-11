@@ -2,7 +2,6 @@ import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import { start } from "workflow/api";
 import { runAgent } from "@/workflows/run-agent";
 import type { AssistantUIMessage } from "@/lib/agents/assistant-agent";
-import { persistAssistantMessage } from "@/lib/history/persist-assistant-message";
 
 type ChatRequestBody = {
   messages: AssistantUIMessage[];
@@ -47,10 +46,6 @@ export async function POST(request: Request) {
     generateId: () => run.runId,
     execute: ({ writer }) => {
       writer.merge(run.readable);
-    },
-    // Assistant persistence is owned by API stream onFinish.
-    onFinish: async ({ responseMessage }) => {
-      await persistAssistantMessage(responseMessage);
     },
   });
 
