@@ -1,22 +1,34 @@
 import { getWritable, getWorkflowMetadata } from "workflow";
 import { getRun } from "workflow/api";
-import { convertToModelMessages } from "ai";
-import type { UIMessageChunk, ModelMessage, InferAgentUIMessage, FinishReason } from "ai";
+import { convertToModelMessages, gateway } from "ai";
+import type {
+  UIMessageChunk,
+  ModelMessage,
+  InferAgentUIMessage,
+  FinishReason,
+} from "ai";
 import z from "zod";
 import { agent, AgentCallOptionsSchema } from "./setup";
 import {
   persistAssistantMessage,
   persistUserMessage,
 } from "@/lib/history/persist-assistant-message";
+import { reconnectSandbox } from "@/lib/sandbox/resolve-sandbox";
 
 type AgentMessage = InferAgentUIMessage<typeof agent>;
+
+export type WorkflowOptions = {
+  sandboxId: string;
+  modelId: string;
+};
+
 type CallOptions = z.infer<AgentCallOptionsSchema>;
 
 type Writable = WritableStream<UIMessageChunk>;
 
 export async function runAgent(
   messages: AgentMessage[],
-  options: CallOptions,
+  options: WorkflowOptions,
   maxIterations = 20,
 ) {
   "use workflow";
@@ -31,7 +43,6 @@ export async function runAgent(
   ]);
   let latestAssistantMessage: AgentMessage | undefined;
 
-  let didFinish = false;
   let wasAborted = false;
 
   for (let i = 0; i < maxIterations; i++) {
@@ -50,18 +61,12 @@ export async function runAgent(
     modelMessages = [...modelMessages, ...responseMessages];
 
     if (finishReason !== "tool-calls") {
-      didFinish = true;
-      await sendFinish(writable);
       break;
     }
   }
 
-  if (!didFinish) {
-    await sendFinish(writable);
-  }
-
   await persistFinalAssistantMessage(latestAssistantMessage, wasAborted);
-
+  await sendFinish(writable);
   await closeStream(writable);
 }
 
@@ -103,13 +108,19 @@ async function runAgentStep(
   originalMessages: AgentMessage[],
   latestAssistantMessage: AgentMessage | undefined,
   writable: Writable,
-  callOptions: CallOptions,
+  options: WorkflowOptions,
   workflowRunId: string,
 ) {
   "use step";
 
   const abortController = new AbortController();
   const stopMonitor = startStopMonitor(workflowRunId, abortController);
+
+  const callOptions = {
+    sandbox: await reconnectSandbox(options.sandboxId),
+    model: gateway(options.modelId),
+    type: "durable",
+  } satisfies CallOptions;
 
   try {
     const result = await agent.stream({
@@ -226,7 +237,12 @@ function startStopMonitor(runId: string, abortController: AbortController) {
     const run = getRun(runId);
 
     while (!shouldStop && !abortController.signal.aborted) {
-      let runStatus: "pending" | "running" | "completed" | "failed" | "cancelled";
+      let runStatus:
+        | "pending"
+        | "running"
+        | "completed"
+        | "failed"
+        | "cancelled";
 
       try {
         runStatus = await run.status;

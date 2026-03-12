@@ -18,6 +18,7 @@ export async function createSandbox() {
 }
 
 export async function reconnectSandbox(sandboxId: string) {
+  "use step";
   const sandbox = await Sandbox.get({ sandboxId });
 
   if (nonReusableStatuses.has(sandbox.status)) {

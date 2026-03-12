@@ -1,5 +1,6 @@
-import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
+import { createUIMessageStreamResponse, type InferUIMessageChunk } from "ai";
 import { start } from "workflow/api";
+import { getWorkflowRunReadableStream } from "@/lib/chat/get-workflow-run-readable-stream";
 import { runAgent } from "@/workflows/run-agent";
 import type { AssistantUIMessage } from "@/lib/agents/assistant-agent";
 
@@ -7,6 +8,8 @@ type ChatRequestBody = {
   messages: AssistantUIMessage[];
   sandboxId: string;
 };
+
+type AssistantUIMessageChunk = InferUIMessageChunk<AssistantUIMessage>;
 
 export async function POST(request: Request) {
   let requestBody: unknown;
@@ -35,19 +38,13 @@ export async function POST(request: Request) {
   const run = await start(runAgent, [
     messages,
     {
-      type: "durable",
       modelId: "anthropic/claude-haiku-4.5",
       sandboxId,
     },
   ]);
-
-  const stream = createUIMessageStream<AssistantUIMessage>({
-    originalMessages: messages,
-    generateId: () => run.runId,
-    execute: ({ writer }) => {
-      writer.merge(run.readable);
-    },
-  });
+  const stream = await getWorkflowRunReadableStream<AssistantUIMessageChunk>(
+    run.runId,
+  );
 
   return createUIMessageStreamResponse({
     stream,
