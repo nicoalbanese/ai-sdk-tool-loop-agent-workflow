@@ -23,6 +23,9 @@ export function ChatClient({ initialMessages }: ChatClientProps) {
   const [activeWorkflowRunId, setActiveWorkflowRunId] = useState<string | null>(
     null,
   );
+  const [resumeWorkflowRunId, setResumeWorkflowRunId] = useState<string | null>(
+    null,
+  );
   const [isStoppingWorkflow, setIsStoppingWorkflow] = useState(false);
   const { containerRef, isAtBottom, scrollToBottom } =
     useScrollToBottom<HTMLDivElement>();
@@ -34,10 +37,13 @@ export function ChatClient({ initialMessages }: ChatClientProps) {
   useEffect(() => {
     if (!sandboxId) {
       setActiveWorkflowRunId(null);
+      setResumeWorkflowRunId(null);
       return;
     }
 
-    setActiveWorkflowRunId(getStoredWorkflowRunId(sandboxId));
+    const storedWorkflowRunId = getStoredWorkflowRunId(sandboxId);
+    setActiveWorkflowRunId(storedWorkflowRunId);
+    setResumeWorkflowRunId(storedWorkflowRunId);
   }, [sandboxId]);
 
   const transport = useMemo(
@@ -63,6 +69,7 @@ export function ChatClient({ initialMessages }: ChatClientProps) {
 
           clearStoredWorkflowRunId(sandboxId);
           setActiveWorkflowRunId(null);
+          setResumeWorkflowRunId(null);
         },
         prepareSendMessagesRequest: ({ messages }) => {
           if (!sandboxId) {
@@ -95,11 +102,10 @@ export function ChatClient({ initialMessages }: ChatClientProps) {
     [sandboxId],
   );
 
-  const stopTargetRunId =
-    activeWorkflowRunId ?? (sandboxId ? getStoredWorkflowRunId(sandboxId) : null);
+  const stopTargetRunId = activeWorkflowRunId;
 
   const { messages, sendMessage, status, stop } = useChat<AssistantUIMessage>({
-    resume: Boolean(stopTargetRunId),
+    resume: Boolean(resumeWorkflowRunId),
     transport,
     messages: initialMessages,
   });
@@ -153,7 +159,7 @@ export function ChatClient({ initialMessages }: ChatClientProps) {
     const workflowRunId = stopTargetRunId;
     const latestAssistantMessage = getLatestAssistantMessage(messages);
 
-    if (!workflowRunId || status === "ready") {
+    if (!workflowRunId || isStoppingWorkflow) {
       return;
     }
 
@@ -176,14 +182,15 @@ export function ChatClient({ initialMessages }: ChatClientProps) {
       if (!response.ok) {
         return;
       }
-    } finally {
-      setIsStoppingWorkflow(false);
 
       if (sandboxId) {
         clearStoredWorkflowRunId(sandboxId);
       }
 
       setActiveWorkflowRunId(null);
+      setResumeWorkflowRunId(null);
+    } finally {
+      setIsStoppingWorkflow(false);
     }
   };
 
@@ -357,7 +364,7 @@ export function ChatClient({ initialMessages }: ChatClientProps) {
           <button
             type="button"
             onClick={() => void handleStopWorkflow()}
-            disabled={status === "ready" || !stopTargetRunId || isStoppingWorkflow}
+            disabled={!stopTargetRunId || isStoppingWorkflow}
             className="rounded-full border border-zinc-300 bg-white px-5 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
           >
             {isStoppingWorkflow ? "Stopping..." : "Stop"}

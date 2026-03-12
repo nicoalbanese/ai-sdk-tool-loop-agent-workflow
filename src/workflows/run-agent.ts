@@ -4,7 +4,10 @@ import { convertToModelMessages } from "ai";
 import type { UIMessageChunk, ModelMessage, InferAgentUIMessage, FinishReason } from "ai";
 import z from "zod";
 import { agent, AgentCallOptionsSchema } from "./setup";
-import { persistUserMessage } from "@/lib/history/persist-assistant-message";
+import {
+  persistAssistantMessage,
+  persistUserMessage,
+} from "@/lib/history/persist-assistant-message";
 
 type AgentMessage = InferAgentUIMessage<typeof agent>;
 type CallOptions = z.infer<AgentCallOptionsSchema>;
@@ -21,23 +24,31 @@ export async function runAgent(
   const { workflowRunId } = getWorkflowMetadata();
   const writable = getWritable<UIMessageChunk>();
 
-  await persistLatestUserMessage(messages);
-
-  let modelMessages = await toModelMessages(messages);
-  await sendStart(writable, workflowRunId);
+  let [modelMessages] = await Promise.all([
+    toModelMessages(messages),
+    persistLatestUserMessage(messages),
+    sendStart(writable, workflowRunId),
+  ]);
+  let latestAssistantMessage: AgentMessage | undefined;
 
   let didFinish = false;
+  let wasAborted = false;
 
   for (let i = 0; i < maxIterations; i++) {
-    const { responseMessages, finishReason } = await runAgentStep(
-      modelMessages,
-      messages,
-      writable,
-      options,
-      workflowRunId,
-    );
-    // Assistant persistence is intentionally handled by API stream onFinish.
+    const { responseMessages, finishReason, assistantMessage, stepWasAborted } =
+      await runAgentStep(
+        modelMessages,
+        messages,
+        latestAssistantMessage,
+        writable,
+        options,
+        workflowRunId,
+      );
+
+    latestAssistantMessage = assistantMessage ?? latestAssistantMessage;
+    wasAborted = wasAborted || stepWasAborted;
     modelMessages = [...modelMessages, ...responseMessages];
+
     if (finishReason !== "tool-calls") {
       didFinish = true;
       await sendFinish(writable);
@@ -48,6 +59,8 @@ export async function runAgent(
   if (!didFinish) {
     await sendFinish(writable);
   }
+
+  await persistFinalAssistantMessage(latestAssistantMessage, wasAborted);
 
   await closeStream(writable);
 }
@@ -72,9 +85,23 @@ async function persistLatestUserMessage(messages: AgentMessage[]) {
   await persistUserMessage(latestMessage);
 }
 
+async function persistFinalAssistantMessage(
+  message: AgentMessage | undefined,
+  wasAborted: boolean,
+) {
+  "use step";
+
+  if (!message || wasAborted) {
+    return;
+  }
+
+  await persistAssistantMessage(message);
+}
+
 async function runAgentStep(
   messages: ModelMessage[],
   originalMessages: AgentMessage[],
+  latestAssistantMessage: AgentMessage | undefined,
   writable: Writable,
   callOptions: CallOptions,
   workflowRunId: string,
@@ -90,12 +117,23 @@ async function runAgentStep(
       options: callOptions,
       abortSignal: abortController.signal,
     });
+
+    const streamOriginalMessages = withLatestAssistantMessage(
+      originalMessages,
+      latestAssistantMessage,
+    );
+    let assistantMessage: AgentMessage | undefined;
+
     const stream = result.toUIMessageStream({
       sendStart: false,
       sendFinish: false,
-      originalMessages,
+      originalMessages: streamOriginalMessages,
       generateMessageId: () => workflowRunId,
+      onFinish: ({ responseMessage }) => {
+        assistantMessage = responseMessage;
+      },
     });
+
     const reader = stream.getReader();
     const writer = writable.getWriter();
 
@@ -116,6 +154,8 @@ async function runAgentStep(
     return {
       responseMessages: response.messages,
       finishReason,
+      assistantMessage,
+      stepWasAborted: false,
     };
   } catch (error) {
     if (isAbortError(error)) {
@@ -123,6 +163,8 @@ async function runAgentStep(
       return {
         responseMessages: [],
         finishReason,
+        assistantMessage: undefined,
+        stepWasAborted: true,
       };
     }
 
@@ -131,6 +173,23 @@ async function runAgentStep(
     stopMonitor.stop();
     await stopMonitor.done;
   }
+}
+
+function withLatestAssistantMessage(
+  messages: AgentMessage[],
+  latestAssistantMessage: AgentMessage | undefined,
+) {
+  if (!latestAssistantMessage) {
+    return messages;
+  }
+
+  const lastMessage = messages[messages.length - 1];
+
+  if (lastMessage?.role === "assistant") {
+    return [...messages.slice(0, -1), latestAssistantMessage];
+  }
+
+  return [...messages, latestAssistantMessage];
 }
 
 async function sendStart(writable: Writable, messageId: string) {
