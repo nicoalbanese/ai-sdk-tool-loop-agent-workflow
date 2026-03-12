@@ -1,21 +1,20 @@
 import {
-  gateway,
-  GatewayModelId,
   ToolLoopAgent,
   InferAgentUIMessage,
   stepCountIs,
+  LanguageModel,
 } from "ai";
 import { z } from "zod";
 import { bashTool } from "../tools/bash-tool";
-import { reconnectSandbox } from "../sandbox/resolve-sandbox";
 import type { AssistantAgentContext } from "../sandbox/assistant-context";
+import { Sandbox } from "@vercel/sandbox";
 
 const agentType = z.enum(["normal", "durable"]);
 
 export const callOptionsSchema = z.object({
-  modelId: z.string<GatewayModelId>(),
+  model: z.custom<LanguageModel>(),
   type: agentType.optional(),
-  sandboxId: z.string().min(1),
+  sandbox: z.custom<Sandbox>(),
 });
 
 export const assistantAgent = new ToolLoopAgent({
@@ -27,15 +26,11 @@ export const assistantAgent = new ToolLoopAgent({
   },
   callOptionsSchema,
   prepareCall: async ({ options, ...rest }) => {
-    // b/c we can't serialize functions, we need to reconstruct here
-    const model = gateway(options.modelId);
-
-    const sandbox = await reconnectSandbox(options.sandboxId);
-    const sandboxContext: AssistantAgentContext = { sandbox };
+    const sandboxContext: AssistantAgentContext = { sandbox: options.sandbox };
 
     return {
       ...rest,
-      model: model,
+      model: options.model,
       // for things like sandbox that aren't serializable, we reconnect in prepareCall,
       // then pass the connected instance through context for tool execution.
       experimental_context: sandboxContext,

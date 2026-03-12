@@ -35,7 +35,6 @@ export async function POST(request: Request) {
   const run = await start(runAgent, [
     messages,
     {
-      type: "durable",
       modelId: "anthropic/claude-haiku-4.5",
       sandboxId,
     },
