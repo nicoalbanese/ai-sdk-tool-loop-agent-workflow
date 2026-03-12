@@ -10,7 +10,6 @@ const assistantResponsesPath = join(
 );
 
 let writeQueue: Promise<void> = Promise.resolve();
-const persistedAssistantSnapshots = new Map<string, string>();
 
 function enqueueWrite(serializedMessage: string) {
   const operation = async () => {
@@ -25,14 +24,7 @@ function enqueueWrite(serializedMessage: string) {
 
 export async function persistAssistantMessage(message: AssistantUIMessage) {
   const serializedMessage = JSON.stringify(message);
-  const lastSnapshot = persistedAssistantSnapshots.get(message.id);
-
-  if (lastSnapshot === serializedMessage) {
-    return;
-  }
-
   await enqueueWrite(serializedMessage);
-  persistedAssistantSnapshots.set(message.id, serializedMessage);
 }
 
 export async function persistUserMessage(message: UIMessage) {
