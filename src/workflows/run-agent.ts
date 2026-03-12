@@ -43,13 +43,13 @@ const durableAssistant = makeDurable(assistantAgent, {
   onMessage: persistMessageStep,
 });
 
-export async function runAgent(...args: Parameters<typeof durableAssistant.run>) {
+export async function runAgent(
+  ...args: Parameters<typeof durableAssistant.run>
+) {
   "use workflow";
 
   await durableAssistant.run(...args);
 }
 
-const boundDurableAssistant = durableAssistant.bind(runAgent);
-
 export const { start: startRunAgent, resume: resumeRunAgent } =
-  boundDurableAssistant;
+  durableAssistant.bind(runAgent);
