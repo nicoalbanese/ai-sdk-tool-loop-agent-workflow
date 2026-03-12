@@ -1,5 +1,4 @@
 import {
-  createUIMessageStream,
   createUIMessageStreamResponse,
   type InferUIMessageChunk,
 } from "ai";
@@ -38,14 +37,9 @@ export async function GET(request: Request, { params }: RouteContext) {
       ? run.getReadable()
       : run.getReadable({ startIndex: startIndexResult });
 
-  const stream = createUIMessageStream<AssistantUIMessage>({
-    generateId: () => id,
-    execute: ({ writer }) => {
-      writer.merge(readable);
-    },
+  return createUIMessageStreamResponse({
+    stream: readable,
   });
-
-  return createUIMessageStreamResponse({ stream });
 }
 
 function parseStartIndex(value: string | null) {

@@ -1,4 +1,4 @@
-import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
+import { createUIMessageStreamResponse } from "ai";
 import { start } from "workflow/api";
 import { runAgent } from "@/workflows/run-agent";
 import type { AssistantUIMessage } from "@/lib/agents/assistant-agent";
@@ -40,16 +40,8 @@ export async function POST(request: Request) {
     },
   ]);
 
-  const stream = createUIMessageStream<AssistantUIMessage>({
-    originalMessages: messages,
-    generateId: () => run.runId,
-    execute: ({ writer }) => {
-      writer.merge(run.readable);
-    },
-  });
-
   return createUIMessageStreamResponse({
-    stream,
+    stream: run.readable,
     headers: {
       "x-workflow-run-id": run.runId,
     },
