@@ -43,7 +43,6 @@ export async function runAgent(
   ]);
   let latestAssistantMessage: AgentMessage | undefined;
 
-  let didFinish = false;
   let wasAborted = false;
 
   for (let i = 0; i < maxIterations; i++) {
@@ -62,18 +61,12 @@ export async function runAgent(
     modelMessages = [...modelMessages, ...responseMessages];
 
     if (finishReason !== "tool-calls") {
-      didFinish = true;
-      await sendFinish(writable);
       break;
     }
   }
 
-  if (!didFinish) {
-    await sendFinish(writable);
-  }
-
   await persistFinalAssistantMessage(latestAssistantMessage, wasAborted);
-
+  await sendFinish(writable);
   await closeStream(writable);
 }
 
