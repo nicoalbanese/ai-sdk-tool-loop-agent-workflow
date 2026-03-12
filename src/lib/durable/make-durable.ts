@@ -27,6 +27,11 @@ type AgentCallOptions<TAgent> = TAgent extends {
     : never
   : never;
 
+export type DurableMessage<TAgent extends AgentShape> = InferAgentUIMessage<TAgent>;
+
+export type DurableCallOptions<TAgent extends AgentShape> =
+  AgentCallOptions<TAgent>;
+
 type WorkflowDefinition<TMessage extends UIMessage, TOptions> = (
   messages: TMessage[],
   options: TOptions,
@@ -46,7 +51,7 @@ type ResumeArgs = {
   response?: ResponseInit;
 };
 
-export type StreamStepInput<TMessage extends UIMessage, TOptions> = {
+export type StepHandlerInput<TMessage extends UIMessage, TOptions> = {
   messages: ModelMessage[];
   originalMessages: TMessage[];
   latestAssistantMessage: TMessage | undefined;
@@ -55,12 +60,20 @@ export type StreamStepInput<TMessage extends UIMessage, TOptions> = {
   workflowRunId: string;
 };
 
-export type StreamStepResult<TMessage extends UIMessage> = {
+export type DurableStepHandlerInput<TAgent extends AgentShape> = StepHandlerInput<
+  DurableMessage<TAgent>,
+  DurableCallOptions<TAgent>
+>;
+
+export type StepHandlerResult<TMessage extends UIMessage> = {
   responseMessages: ModelMessage[];
   finishReason: FinishReason;
   assistantMessage: TMessage | undefined;
   stepWasAborted: boolean;
 };
+
+export type DurableStepHandlerResult<TAgent extends AgentShape> =
+  StepHandlerResult<DurableMessage<TAgent>>;
 
 type DurableStreamResult<TMessage extends UIMessage> = {
   toUIMessageStream(options: {
@@ -79,11 +92,14 @@ export type OnMessageStepInput<TMessage extends UIMessage> = {
   wasAborted: boolean;
 };
 
+export type DurableOnMessageStepInput<TAgent extends AgentShape> =
+  OnMessageStepInput<DurableMessage<TAgent>>;
+
 type DurableConfig<TMessage extends UIMessage, TOptions> = {
   maxIterations?: number;
-  stream: (
-    input: StreamStepInput<TMessage, TOptions>,
-  ) => PromiseLike<StreamStepResult<TMessage>>;
+  stepHandler: (
+    input: StepHandlerInput<TMessage, TOptions>,
+  ) => PromiseLike<StepHandlerResult<TMessage>>;
   onMessage?: (input: OnMessageStepInput<TMessage>) => PromiseLike<void> | void;
 };
 
@@ -93,10 +109,18 @@ type DurableBinding<TMessage extends UIMessage, TOptions> = {
     options: TOptions,
     maxIterations?: number,
   ): Promise<void>;
+  bind(
+    workflow: WorkflowDefinition<TMessage, TOptions>,
+  ): BoundDurableBinding<TMessage, TOptions>;
   start(
     workflow: WorkflowDefinition<TMessage, TOptions>,
     args: StartArgs<TMessage, TOptions>,
   ): Promise<Response>;
+  resume(args: ResumeArgs): Promise<Response>;
+};
+
+type BoundDurableBinding<TMessage extends UIMessage, TOptions> = {
+  start(args: StartArgs<TMessage, TOptions>): Promise<Response>;
   resume(args: ResumeArgs): Promise<Response>;
 };
 
@@ -140,7 +164,7 @@ export function makeDurable<TAgent extends AgentShape>(
     await sendStart(writable, workflowRunId);
 
     for (let iteration = 0; iteration < maxIterations; iteration++) {
-      const result = await config.stream({
+      const result = await config.stepHandler({
         messages: modelMessages,
         originalMessages: messages,
         latestAssistantMessage,
@@ -217,14 +241,28 @@ export function makeDurable<TAgent extends AgentShape>(
     });
   }
 
+  function bind(workflow: WorkflowDefinition<TMessage, TOptions>) {
+    return {
+      start(args: StartArgs<TMessage, TOptions>) {
+        return start(workflow, args);
+      },
+      resume,
+    };
+  }
+
   return {
     run,
+    bind,
     start,
     resume,
   };
 }
 
-export async function streamAgentStep<TMessage extends UIMessage, TOptions>(
+export function runAgentStepHandler<TAgent extends AgentShape>(
+  agent: TAgent,
+  input: DurableStepHandlerInput<TAgent>,
+): Promise<DurableStepHandlerResult<TAgent>>;
+export async function runAgentStepHandler<TMessage extends UIMessage, TOptions>(
   agent: {
     stream(options: {
       messages: ModelMessage[];
@@ -232,8 +270,8 @@ export async function streamAgentStep<TMessage extends UIMessage, TOptions>(
       abortSignal?: AbortSignal;
     }): PromiseLike<DurableStreamResult<TMessage>>;
   },
-  input: StreamStepInput<TMessage, TOptions>,
-): Promise<StreamStepResult<TMessage>> {
+  input: StepHandlerInput<TMessage, TOptions>,
+): Promise<StepHandlerResult<TMessage>> {
   const abortController = new AbortController();
   const stopMonitor = startRunCancellationMonitor(
     input.workflowRunId,

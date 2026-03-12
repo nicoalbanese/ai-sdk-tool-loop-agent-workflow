@@ -1,32 +1,28 @@
 import {
+  type DurableOnMessageStepInput,
+  type DurableStepHandlerInput,
+  type DurableStepHandlerResult,
   makeDurable,
-  streamAgentStep,
-  type OnMessageStepInput,
-  type StreamStepInput,
-  type StreamStepResult,
+  runAgentStepHandler,
 } from "@/lib/durable/make-durable";
-import {
-  assistantAgent,
-  type AssistantUIMessage,
-  type CallOptions,
-} from "@/lib/agents/assistant-agent";
+import { assistantAgent } from "@/lib/agents/assistant-agent";
 import {
   persistAssistantMessage,
   persistUserMessage,
 } from "@/lib/history/persist-assistant-message";
 
-async function streamAssistantStep(
-  input: StreamStepInput<AssistantUIMessage, CallOptions>,
-): Promise<StreamStepResult<AssistantUIMessage>> {
+async function runAssistantStepHandler(
+  input: DurableStepHandlerInput<typeof assistantAgent>,
+): Promise<DurableStepHandlerResult<typeof assistantAgent>> {
   "use step";
 
-  return streamAgentStep<AssistantUIMessage, CallOptions>(assistantAgent, input);
+  return runAgentStepHandler(assistantAgent, input);
 }
 
 async function persistMessageStep({
   message,
   wasAborted,
-}: OnMessageStepInput<AssistantUIMessage>) {
+}: DurableOnMessageStepInput<typeof assistantAgent>) {
   "use step";
 
   if (message.role === "user") {
@@ -43,33 +39,17 @@ async function persistMessageStep({
 
 const durableAssistant = makeDurable(assistantAgent, {
   maxIterations: 20,
-  stream: streamAssistantStep,
+  stepHandler: runAssistantStepHandler,
   onMessage: persistMessageStep,
 });
 
-export async function runAgent(
-  messages: AssistantUIMessage[],
-  options: CallOptions,
-  maxIterations?: number,
-) {
+export async function runAgent(...args: Parameters<typeof durableAssistant.run>) {
   "use workflow";
 
-  await durableAssistant.run(messages, options, maxIterations);
+  await durableAssistant.run(...args);
 }
 
-export function startRunAgent(args: {
-  messages: AssistantUIMessage[];
-  options: CallOptions;
-  maxIterations?: number;
-  response?: ResponseInit;
-}) {
-  return durableAssistant.start(runAgent, args);
-}
+const boundDurableAssistant = durableAssistant.bind(runAgent);
 
-export function resumeRunAgent(args: {
-  runId: string;
-  startIndex?: number;
-  response?: ResponseInit;
-}) {
-  return durableAssistant.resume(args);
-}
+export const { start: startRunAgent, resume: resumeRunAgent } =
+  boundDurableAssistant;
