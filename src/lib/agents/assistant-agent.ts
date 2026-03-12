@@ -27,6 +27,7 @@ export const assistantAgent = new ToolLoopAgent({
   },
   callOptionsSchema,
   prepareCall: async ({ options, ...rest }) => {
+    "use step";
     // b/c we can't serialize functions, we need to reconstruct here
     const model = gateway(options.modelId);
 

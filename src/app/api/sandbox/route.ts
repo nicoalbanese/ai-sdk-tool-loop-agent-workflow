@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createSandbox } from "@/lib/sandbox/resolve-sandbox";
+import { createSandbox } from "@/lib/sandbox/create-sandbox";
 
 export async function GET() {
   const sandbox = await createSandbox();
