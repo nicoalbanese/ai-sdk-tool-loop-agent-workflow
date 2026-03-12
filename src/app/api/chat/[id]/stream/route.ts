@@ -4,6 +4,7 @@ import {
 } from "ai";
 import { getRun } from "workflow/api";
 import type { AssistantUIMessage } from "@/lib/agents/assistant-agent";
+import { getWorkflowRunReadableStream } from "@/lib/chat/get-workflow-run-readable-stream";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -32,10 +33,10 @@ export async function GET(request: Request, { params }: RouteContext) {
     });
   }
 
-  const readable =
-    startIndexResult === undefined
-      ? run.getReadable()
-      : run.getReadable({ startIndex: startIndexResult });
+  const readable = await getWorkflowRunReadableStream<AssistantUIMessageChunk>(
+    id,
+    startIndexResult === undefined ? {} : { startIndex: startIndexResult },
+  );
 
   return createUIMessageStreamResponse({
     stream: readable,

@@ -1,5 +1,6 @@
-import { createUIMessageStreamResponse } from "ai";
+import { createUIMessageStreamResponse, type InferUIMessageChunk } from "ai";
 import { start } from "workflow/api";
+import { getWorkflowRunReadableStream } from "@/lib/chat/get-workflow-run-readable-stream";
 import { runAgent } from "@/workflows/run-agent";
 import type { AssistantUIMessage } from "@/lib/agents/assistant-agent";
 
@@ -7,6 +8,8 @@ type ChatRequestBody = {
   messages: AssistantUIMessage[];
   sandboxId: string;
 };
+
+type AssistantUIMessageChunk = InferUIMessageChunk<AssistantUIMessage>;
 
 export async function POST(request: Request) {
   let requestBody: unknown;
@@ -39,9 +42,12 @@ export async function POST(request: Request) {
       sandboxId,
     },
   ]);
+  const stream = await getWorkflowRunReadableStream<AssistantUIMessageChunk>(
+    run.runId,
+  );
 
   return createUIMessageStreamResponse({
-    stream: run.readable,
+    stream,
     headers: {
       "x-workflow-run-id": run.runId,
     },
