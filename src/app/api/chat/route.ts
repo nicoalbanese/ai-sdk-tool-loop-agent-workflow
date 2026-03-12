@@ -1,6 +1,4 @@
-import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
-import { start } from "workflow/api";
-import { runAgent } from "@/workflows/run-agent";
+import { startRunAgent } from "@/workflows/run-agent";
 import type { AssistantUIMessage } from "@/lib/agents/assistant-agent";
 
 type ChatRequestBody = {
@@ -30,29 +28,12 @@ export async function POST(request: Request) {
     return Response.json({ error: "sandboxId is required" }, { status: 400 });
   }
 
-  // start workflow and pass only serializable data
-  // non-serializable runtime data (sandbox instance) is reconstructed in prepareCall
-  const run = await start(runAgent, [
+  return startRunAgent({
     messages,
-    {
+    options: {
       type: "durable",
       modelId: "anthropic/claude-haiku-4.5",
       sandboxId,
-    },
-  ]);
-
-  const stream = createUIMessageStream<AssistantUIMessage>({
-    originalMessages: messages,
-    generateId: () => run.runId,
-    execute: ({ writer }) => {
-      writer.merge(run.readable);
-    },
-  });
-
-  return createUIMessageStreamResponse({
-    stream,
-    headers: {
-      "x-workflow-run-id": run.runId,
     },
   });
 }

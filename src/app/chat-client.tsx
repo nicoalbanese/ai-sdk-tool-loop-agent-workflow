@@ -182,14 +182,13 @@ export function ChatClient({ initialMessages }: ChatClientProps) {
       if (!response.ok) {
         return;
       }
-
+    } finally {
       if (sandboxId) {
         clearStoredWorkflowRunId(sandboxId);
       }
 
       setActiveWorkflowRunId(null);
       setResumeWorkflowRunId(null);
-    } finally {
       setIsStoppingWorkflow(false);
     }
   };

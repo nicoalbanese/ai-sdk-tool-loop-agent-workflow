@@ -10,14 +10,9 @@ const nonReusableStatuses = new Set([
   "stopping",
 ]);
 
-export async function createSandbox() {
-  return Sandbox.create({
-    timeout: SANDBOX_TIMEOUT_MS,
-    networkPolicy: "allow-all",
-  });
-}
-
 export async function reconnectSandbox(sandboxId: string) {
+  "use step";
+
   const sandbox = await Sandbox.get({ sandboxId });
 
   if (nonReusableStatuses.has(sandbox.status)) {

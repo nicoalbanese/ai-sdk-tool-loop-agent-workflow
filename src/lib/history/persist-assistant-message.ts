@@ -1,6 +1,5 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { AssistantUIMessage } from "@/lib/agents/assistant-agent";
 import type { UIMessage } from "ai";
 
 const assistantResponsesPath = join(
@@ -10,7 +9,6 @@ const assistantResponsesPath = join(
 );
 
 let writeQueue: Promise<void> = Promise.resolve();
-const persistedAssistantSnapshots = new Map<string, string>();
 
 function enqueueWrite(serializedMessage: string) {
   const operation = async () => {
@@ -23,18 +21,19 @@ function enqueueWrite(serializedMessage: string) {
   return writeQueue;
 }
 
-export async function persistAssistantMessage(message: AssistantUIMessage) {
+export async function appendHistoryMessage(message: UIMessage) {
   const serializedMessage = JSON.stringify(message);
-  const lastSnapshot = persistedAssistantSnapshots.get(message.id);
-
-  if (lastSnapshot === serializedMessage) {
-    return;
-  }
-
   await enqueueWrite(serializedMessage);
-  persistedAssistantSnapshots.set(message.id, serializedMessage);
+}
+
+export async function persistAssistantMessage(message: UIMessage) {
+  "use step";
+
+  await appendHistoryMessage(message);
 }
 
 export async function persistUserMessage(message: UIMessage) {
-  return enqueueWrite(JSON.stringify(message));
+  "use step";
+
+  return appendHistoryMessage(message);
 }

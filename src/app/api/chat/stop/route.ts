@@ -1,6 +1,6 @@
 import { getRun } from "workflow/api";
 import type { AssistantUIMessage } from "@/lib/agents/assistant-agent";
-import { persistAssistantMessage } from "@/lib/history/persist-assistant-message";
+import { appendHistoryMessage } from "@/lib/history/persist-assistant-message";
 
 type StopWorkflowRequestBody = {
   runId: string;
@@ -21,19 +21,28 @@ export async function POST(request: Request) {
   }
 
   try {
-    // Persist the latest client snapshot before cancelling so
-    // mid-step output is not lost on abrupt stop.
-    if (requestBody.assistantMessage) {
-      await persistAssistantMessage(requestBody.assistantMessage);
+    const run = getRun(requestBody.runId);
+    const status = await run.status;
+
+    if (status === "running" || status === "pending") {
+      await run.cancel();
     }
 
-    const run = getRun(requestBody.runId);
-    await run.cancel();
+    const finalStatus = await run.status;
 
-    return Response.json({ status: "cancelled" });
-  } catch {
+    if (finalStatus === "cancelled" && requestBody.assistantMessage) {
+      await appendHistoryMessage(requestBody.assistantMessage);
+    }
+
+    return Response.json({ status: finalStatus });
+  } catch (error) {
     return Response.json(
-      { error: "Failed to cancel workflow run" },
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to cancel workflow run",
+      },
       { status: 500 },
     );
   }

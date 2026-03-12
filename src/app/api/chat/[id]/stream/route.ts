@@ -1,16 +1,8 @@
-import {
-  createUIMessageStream,
-  createUIMessageStreamResponse,
-  type InferUIMessageChunk,
-} from "ai";
-import { getRun } from "workflow/api";
-import type { AssistantUIMessage } from "@/lib/agents/assistant-agent";
+import { resumeRunAgent } from "@/workflows/run-agent";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
 };
-
-type AssistantUIMessageChunk = InferUIMessageChunk<AssistantUIMessage>;
 
 export async function GET(request: Request, { params }: RouteContext) {
   const { id } = await params;
@@ -24,28 +16,10 @@ export async function GET(request: Request, { params }: RouteContext) {
     );
   }
 
-  const run = getRun(id);
-  const runStatus = await run.status;
-
-  if (runStatus === "cancelled") {
-    return createUIMessageStreamResponse({
-      stream: createTerminalFinishStream("stop"),
-    });
-  }
-
-  const readable =
-    startIndexResult === undefined
-      ? run.getReadable()
-      : run.getReadable({ startIndex: startIndexResult });
-
-  const stream = createUIMessageStream<AssistantUIMessage>({
-    generateId: () => id,
-    execute: ({ writer }) => {
-      writer.merge(readable);
-    },
+  return resumeRunAgent({
+    runId: id,
+    startIndex: startIndexResult,
   });
-
-  return createUIMessageStreamResponse({ stream });
 }
 
 function parseStartIndex(value: string | null) {
@@ -64,13 +38,4 @@ function parseStartIndex(value: string | null) {
   }
 
   return parsed;
-}
-
-function createTerminalFinishStream(finishReason: "stop") {
-  return new ReadableStream<AssistantUIMessageChunk>({
-    start(controller) {
-      controller.enqueue({ type: "finish", finishReason });
-      controller.close();
-    },
-  });
 }
